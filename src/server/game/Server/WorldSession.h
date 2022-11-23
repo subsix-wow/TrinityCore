@@ -43,7 +43,7 @@
 class BlackMarketEntry;
 class CollectionMgr;
 class Creature;
-class InstanceSave;
+class InstanceLock;
 class Item;
 class LoginQueryHolder;
 class Player;
@@ -56,6 +56,7 @@ struct BlackMarketTemplate;
 struct ChrCustomizationReqEntry;
 struct DeclinedName;
 struct ItemTemplate;
+struct Loot;
 struct MovementInfo;
 struct Petition;
 struct Position;
@@ -164,13 +165,6 @@ namespace WorldPackets
         class AutoBankReagent;
         class AutoStoreBankReagent;
         class ReagentBank;
-    }
-
-    namespace Battlefield
-    {
-        class BFMgrEntryInviteResponse;
-        class BFMgrQueueInviteResponse;
-        class BFMgrQueueExitRequest;
     }
 
     namespace Battleground
@@ -872,17 +866,6 @@ enum PartyOperation
     PARTY_OP_SWAP     = 4
 };
 
-enum BFLeaveReason
-{
-    BF_LEAVE_REASON_CLOSE     = 1,
-    //BF_LEAVE_REASON_UNK1      = 2, (not used)
-    //BF_LEAVE_REASON_UNK2      = 4, (not used)
-    BF_LEAVE_REASON_EXITED = 8,
-    BF_LEAVE_REASON_LOW_LEVEL = 10,
-    BF_LEAVE_REASON_NOT_WHILE_IN_RAID = 15,
-    BF_LEAVE_REASON_DESERTER = 16
-};
-
 enum ChatRestrictionType
 {
     ERR_CHAT_RESTRICTED      = 0,
@@ -1133,7 +1116,7 @@ class TC_GAME_API WorldSession
         // Guild/Arena Team
         void SendPetitionShowList(ObjectGuid guid);
 
-        void DoLootRelease(ObjectGuid lguid);
+        void DoLootRelease(Loot* loot);
         void DoLootReleaseAll();
 
         // Account mute time
@@ -1604,16 +1587,6 @@ class TC_GAME_API WorldSession
         void HandleHearthAndResurrect(WorldPackets::Battleground::HearthAndResurrect& hearthAndResurrect);
         void HandleRequestBattlefieldStatusOpcode(WorldPackets::Battleground::RequestBattlefieldStatus& requestBattlefieldStatus);
 
-        // Battlefield
-        void SendBfInvitePlayerToWar(uint64 queueId, uint32 zoneId, uint32 acceptTime);
-        void SendBfInvitePlayerToQueue(uint64 queueId, int8 battleState);
-        void SendBfQueueInviteResponse(uint64 queueId, uint32 zoneId, int8 battleStatus, bool canQueue = true, bool loggingIn = false);
-        void SendBfEntered(uint64 queueId, bool relocated, bool onOffense);
-        void SendBfLeaveMessage(uint64 queueId, int8 battleState, bool relocated, BFLeaveReason reason = BF_LEAVE_REASON_EXITED);
-        void HandleBfEntryInviteResponse(WorldPackets::Battlefield::BFMgrEntryInviteResponse& bfMgrEntryInviteResponse);
-        void HandleBfQueueInviteResponse(WorldPackets::Battlefield::BFMgrQueueInviteResponse& bfMgrQueueInviteResponse);
-        void HandleBfQueueExitRequest(WorldPackets::Battlefield::BFMgrQueueExitRequest& bfMgrQueueExitRequest);
-
         void HandleMinimapPingOpcode(WorldPackets::Party::MinimapPingClient& packet);
         void HandleRandomRollOpcode(WorldPackets::Misc::RandomRollClient& packet);
         void HandleFarSightOpcode(WorldPackets::Misc::FarSight& packet);
@@ -1709,8 +1682,8 @@ class TC_GAME_API WorldSession
         void HandleCalendarGetNumPending(WorldPackets::Calendar::CalendarGetNumPending& calendarGetNumPending);
         void HandleCalendarEventSignup(WorldPackets::Calendar::CalendarEventSignUp& calendarEventSignUp);
 
-        void SendCalendarRaidLockout(InstanceSave const* save, bool add);
-        void SendCalendarRaidLockoutUpdated(InstanceSave const* save);
+        void SendCalendarRaidLockoutAdded(InstanceLock const* lock);
+        void SendCalendarRaidLockoutRemoved(InstanceLock const* lock);
         void HandleSetSavedInstanceExtend(WorldPackets::Calendar::SetSavedInstanceExtend& setSavedInstanceExtend);
 
         // Void Storage
@@ -1822,6 +1795,7 @@ class TC_GAME_API WorldSession
         void HandleAzeriteEssenceActivateEssence(WorldPackets::Azerite::AzeriteEssenceActivateEssence& azeriteEssenceActivateEssence);
         void HandleAzeriteEmpoweredItemViewed(WorldPackets::Azerite::AzeriteEmpoweredItemViewed& azeriteEmpoweredItemViewed);
         void HandleAzeriteEmpoweredItemSelectPower(WorldPackets::Azerite::AzeriteEmpoweredItemSelectPower& azeriteEmpoweredItemSelectPower);
+        void SendAzeriteRespecNPC(ObjectGuid npc);
 
         void HandleRequestLatestSplashScreen(WorldPackets::Misc::RequestLatestSplashScreen& requestLatestSplashScreen);
 

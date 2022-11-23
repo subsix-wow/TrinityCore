@@ -148,6 +148,7 @@ DB2Storage<GarrPlotBuildingEntry>               sGarrPlotBuildingStore("GarrPlot
 DB2Storage<GarrPlotInstanceEntry>               sGarrPlotInstanceStore("GarrPlotInstance.db2", GarrPlotInstanceLoadInfo::Instance());
 DB2Storage<GarrSiteLevelEntry>                  sGarrSiteLevelStore("GarrSiteLevel.db2", GarrSiteLevelLoadInfo::Instance());
 DB2Storage<GarrSiteLevelPlotInstEntry>          sGarrSiteLevelPlotInstStore("GarrSiteLevelPlotInst.db2", GarrSiteLevelPlotInstLoadInfo::Instance());
+DB2Storage<GarrTalentTreeEntry>                 sGarrTalentTreeStore("GarrTalentTree.db2", GarrTalentTreeLoadInfo::Instance());
 DB2Storage<GemPropertiesEntry>                  sGemPropertiesStore("GemProperties.db2", GemPropertiesLoadInfo::Instance());
 DB2Storage<GlobalCurveEntry>                    sGlobalCurveStore("GlobalCurve.db2", GlobalCurveLoadInfo::Instance());
 DB2Storage<GlyphBindableSpellEntry>             sGlyphBindableSpellStore("GlyphBindableSpell.db2", GlyphBindableSpellLoadInfo::Instance());
@@ -722,6 +723,7 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     LOAD_DB2(sGarrPlotInstanceStore);
     LOAD_DB2(sGarrSiteLevelStore);
     LOAD_DB2(sGarrSiteLevelPlotInstStore);
+    LOAD_DB2(sGarrTalentTreeStore);
     LOAD_DB2(sGemPropertiesStore);
     LOAD_DB2(sGlobalCurveStore);
     LOAD_DB2(sGlyphBindableSpellStore);
@@ -923,13 +925,13 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     }
 
     // Check loaded DB2 files proper version
-    if (!sAreaTableStore.LookupEntry(14083) ||               // last area added in 9.2.5 (43971)
-        !sCharTitlesStore.LookupEntry(727) ||                // last char title added in 9.2.5 (43971)
-        !sGemPropertiesStore.LookupEntry(3922) ||            // last gem property added in 9.2.5 (43971)
-        !sItemStore.LookupEntry(193265) ||                   // last item added in 9.2.5 (43971)
-        !sItemExtendedCostStore.LookupEntry(7302) ||         // last item extended cost added in 9.2.5 (43971)
-        !sMapStore.LookupEntry(2559) ||                      // last map added in 9.2.5 (43971)
-        !sSpellNameStore.LookupEntry(375051))                // last spell added in 9.2.5 (43971)
+    if (!sAreaTableStore.LookupEntry(14083) ||               // last area added in 9.2.7 (45114)
+        !sCharTitlesStore.LookupEntry(727) ||                // last char title added in 9.2.7 (45114)
+        !sGemPropertiesStore.LookupEntry(3922) ||            // last gem property added in 9.2.7 (45114)
+        !sItemStore.LookupEntry(199202) ||                   // last item added in 9.2.7 (45114)
+        !sItemExtendedCostStore.LookupEntry(7316) ||         // last item extended cost added in 9.2.7 (45114)
+        !sMapStore.LookupEntry(2559) ||                      // last map added in 9.2.7 (45114)
+        !sSpellNameStore.LookupEntry(387936))                // last spell added in 9.2.7 (45114)
     {
         TC_LOG_ERROR("misc", "You have _outdated_ DB2 files. Please extract correct versions from current using client.");
         exit(1);
@@ -1516,6 +1518,11 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
         _wmoAreaTableLookup[WMOAreaTableKey(entry->WmoID, entry->NameSetID, entry->WmoGroupID)] = entry;
 
     // Initialize global taxinodes mask
+    // reinitialize internal storage for globals after loading TaxiNodes.db2
+    sTaxiNodesMask = {};
+    sHordeTaxiNodesMask = {};
+    sAllianceTaxiNodesMask = {};
+    sOldContinentsNodesMask = {};
     // include existed nodes that have at least single not spell base (scripted) path
     for (TaxiNodesEntry const* node : sTaxiNodesStore)
     {
@@ -3332,11 +3339,11 @@ bool DB2Manager::GetUiMapPosition(float x, float y, float z, int32 mapId, int32 
     return true;
 }
 
-void DB2Manager::Zone2MapCoordinates(uint32 areaId, float& x, float& y) const
+bool DB2Manager::Zone2MapCoordinates(uint32 areaId, float& x, float& y) const
 {
     AreaTableEntry const* areaEntry = sAreaTableStore.LookupEntry(areaId);
     if (!areaEntry)
-        return;
+        return false;
 
     for (auto assignment : Trinity::Containers::MapEqualRange(_uiMapAssignmentByArea[UI_MAP_SYSTEM_WORLD], areaId))
     {
@@ -3348,8 +3355,10 @@ void DB2Manager::Zone2MapCoordinates(uint32 areaId, float& x, float& y) const
         x = assignment.second->Region[0].X + tmpY * (assignment.second->Region[1].X - assignment.second->Region[0].X);
         y = assignment.second->Region[0].Y + tmpX * (assignment.second->Region[1].Y - assignment.second->Region[0].Y);
 
-        break;
+        return true;
     }
+
+    return false;
 }
 
 void DB2Manager::Map2ZoneCoordinates(uint32 areaId, float& x, float& y) const
@@ -3386,7 +3395,8 @@ bool ItemLevelSelectorQualityEntryComparator::Compare(ItemLevelSelectorQualityEn
 
 TaxiMask::TaxiMask()
 {
-    _data.resize(((sTaxiNodesStore.GetNumRows() - 1) / (sizeof(value_type) * 8)) + 1, 0);
+    if (sTaxiNodesStore.GetNumRows())
+        _data.resize(((sTaxiNodesStore.GetNumRows() - 1) / (sizeof(value_type) * 8)) + 1, 0);
 }
 
 bool DB2Manager::FriendshipRepReactionEntryComparator::Compare(FriendshipRepReactionEntry const* left, FriendshipRepReactionEntry const* right)

@@ -129,16 +129,16 @@ struct npc_wg_demolisher_engineer : public ScriptedAI
         if (CanBuild())
         {
             if (player->HasAura(SPELL_CORPORAL))
-                AddGossipItemFor(player, GossipOptionIcon::None, GOSSIP_HELLO_DEMO1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+                AddGossipItemFor(player, GossipOptionNpc::None, GOSSIP_HELLO_DEMO1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
             else if (player->HasAura(SPELL_LIEUTENANT))
             {
-                AddGossipItemFor(player, GossipOptionIcon::None, GOSSIP_HELLO_DEMO1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
-                AddGossipItemFor(player, GossipOptionIcon::None, GOSSIP_HELLO_DEMO2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
-                AddGossipItemFor(player, GossipOptionIcon::None, GOSSIP_HELLO_DEMO3, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
+                AddGossipItemFor(player, GossipOptionNpc::None, GOSSIP_HELLO_DEMO1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+                AddGossipItemFor(player, GossipOptionNpc::None, GOSSIP_HELLO_DEMO2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+                AddGossipItemFor(player, GossipOptionNpc::None, GOSSIP_HELLO_DEMO3, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
             }
         }
         else
-            AddGossipItemFor(player, GossipOptionIcon::None, GOSSIP_HELLO_DEMO4, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 9);
+            AddGossipItemFor(player, GossipOptionNpc::None, GOSSIP_HELLO_DEMO4, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 9);
 
         SendGossipMenuFor(player, player->GetGossipTextId(me), me->GetGUID());
         return true;
@@ -172,7 +172,7 @@ struct npc_wg_demolisher_engineer : public ScriptedAI
 private:
     bool CanBuild() const
     {
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(me->GetMap(), BATTLEFIELD_BATTLEID_WG);
         if (!wintergrasp)
             return false;
 
@@ -203,14 +203,14 @@ struct npc_wg_spirit_guide : public ScriptedAI
         if (me->IsQuestGiver())
             player->PrepareQuestMenu(me->GetGUID());
 
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(me->GetMap(), BATTLEFIELD_BATTLEID_WG);
         if (!wintergrasp)
             return true;
 
         GraveyardVect graveyard = wintergrasp->GetGraveyardVector();
         for (uint8 i = 0; i < graveyard.size(); i++)
             if (graveyard[i]->GetControlTeamId() == player->GetTeamId())
-                AddGossipItemFor(player, GossipOptionIcon::None, player->GetSession()->GetTrinityString(((BfGraveyardWG*)graveyard[i])->GetTextId()), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + i);
+                AddGossipItemFor(player, GossipOptionNpc::None, player->GetSession()->GetTrinityString(((BfGraveyardWG*)graveyard[i])->GetTextId()), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + i);
 
         SendGossipMenuFor(player, player->GetGossipTextId(me), me->GetGUID());
         return true;
@@ -221,7 +221,7 @@ struct npc_wg_spirit_guide : public ScriptedAI
         uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
         CloseGossipMenuFor(player);
 
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(me->GetMap(), BATTLEFIELD_BATTLEID_WG);
         if (wintergrasp)
         {
             GraveyardVect gy = wintergrasp->GetGraveyardVector();
@@ -272,13 +272,13 @@ struct npc_wg_queue : public ScriptedAI
         if (me->IsQuestGiver())
             player->PrepareQuestMenu(me->GetGUID());
 
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(me->GetMap(), BATTLEFIELD_BATTLEID_WG);
         if (!wintergrasp)
             return true;
 
         if (wintergrasp->IsWarTime())
         {
-            AddGossipItemFor(player, GossipOptionIcon::None, player->GetSession()->GetTrinityString(WG_NPCQUEUE_TEXTOPTION_JOIN), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+            AddGossipItemFor(player, GossipOptionNpc::None, player->GetSession()->GetTrinityString(WG_NPCQUEUE_TEXTOPTION_JOIN), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
             SendGossipMenuFor(player, wintergrasp->GetDefenderTeam() ? WG_NPCQUEUE_TEXT_H_WAR : WG_NPCQUEUE_TEXT_A_WAR, me->GetGUID());
         }
         else
@@ -287,7 +287,7 @@ struct npc_wg_queue : public ScriptedAI
             player->SendUpdateWorldState(4354, GameTime::GetGameTime() + timer);
             if (timer < 15 * MINUTE)
             {
-                AddGossipItemFor(player, GossipOptionIcon::None, player->GetSession()->GetTrinityString(WG_NPCQUEUE_TEXTOPTION_JOIN), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+                AddGossipItemFor(player, GossipOptionNpc::None, player->GetSession()->GetTrinityString(WG_NPCQUEUE_TEXTOPTION_JOIN), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
                 SendGossipMenuFor(player, wintergrasp->GetDefenderTeam() ? WG_NPCQUEUE_TEXT_H_QUEUE : WG_NPCQUEUE_TEXT_A_QUEUE, me->GetGUID());
             }
             else
@@ -300,7 +300,7 @@ struct npc_wg_queue : public ScriptedAI
     {
         CloseGossipMenuFor(player);
 
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(me->GetMap(), BATTLEFIELD_BATTLEID_WG);
         if (!wintergrasp)
             return true;
 
@@ -441,8 +441,8 @@ class spell_wintergrasp_defender_teleport : public SpellScript
 
     SpellCastResult CheckCast()
     {
-        if (Battlefield* wg = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG))
-            if (Player* target = GetExplTargetUnit()->ToPlayer())
+        if (Player* target = GetExplTargetUnit()->ToPlayer())
+            if (Battlefield* wg = sBattlefieldMgr->GetBattlefieldByBattleId(target->GetMap(), BATTLEFIELD_BATTLEID_WG))
                 // check if we are in Wintergrasp at all, SotA uses same teleport spells
                 if ((target->GetZoneId() == AREA_WINTERGRASP && target->GetTeamId() != wg->GetDefenderTeam()) || target->HasAura(SPELL_WINTERGRASP_TELEPORT_TRIGGER))
                     return SPELL_FAILED_BAD_TARGETS;
@@ -528,9 +528,11 @@ class condition_is_wintergrasp_horde : public ConditionScript
 public:
     condition_is_wintergrasp_horde() : ConditionScript("condition_is_wintergrasp_horde") { }
 
-    bool OnConditionCheck(Condition const* /* condition */, ConditionSourceInfo& /* sourceInfo */)
+    bool OnConditionCheck(Condition const* /* condition */, ConditionSourceInfo& sourceInfo)
     {
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        if (!sourceInfo.mConditionMap)
+            return false;
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(sourceInfo.mConditionMap, BATTLEFIELD_BATTLEID_WG);
         if (wintergrasp->IsEnabled() && wintergrasp->GetDefenderTeam() == TEAM_HORDE)
             return true;
         return false;
@@ -542,9 +544,11 @@ class condition_is_wintergrasp_alliance : public ConditionScript
 public:
     condition_is_wintergrasp_alliance() : ConditionScript("condition_is_wintergrasp_alliance") { }
 
-    bool OnConditionCheck(Condition const* /* condition */, ConditionSourceInfo& /* sourceInfo */)
+    bool OnConditionCheck(Condition const* /* condition */, ConditionSourceInfo& sourceInfo)
     {
-        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG);
+        if (!sourceInfo.mConditionMap)
+            return false;
+        Battlefield* wintergrasp = sBattlefieldMgr->GetBattlefieldByBattleId(sourceInfo.mConditionMap, BATTLEFIELD_BATTLEID_WG);
         if (wintergrasp->IsEnabled() && wintergrasp->GetDefenderTeam() == TEAM_ALLIANCE)
             return true;
         return false;

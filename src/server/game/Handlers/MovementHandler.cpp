@@ -22,13 +22,13 @@
 #include "FlightPathMovementGenerator.h"
 #include "GameTime.h"
 #include "Garrison.h"
+#include "InstanceLockMgr.h"
 #include "InstancePackets.h"
-#include "InstanceSaveMgr.h"
 #include "Log.h"
+#include "Map.h"
 #include "MapManager.h"
 #include "MiscPackets.h"
 #include "MovementPackets.h"
-#include "ObjectMgr.h"
 #include "Player.h"
 #include "SpellInfo.h"
 #include "MotionMaster.h"
@@ -68,10 +68,9 @@ void WorldSession::HandleMoveWorldportAck()
 
     // get the destination map entry, not the current one, this will fix homebind and reset greeting
     MapEntry const* mEntry = sMapStore.LookupEntry(loc.GetMapId());
-    InstanceTemplate const* mInstance = sObjectMgr->GetInstanceTemplate(loc.GetMapId());
 
     // reset instance validity, except if going to an instance inside an instance
-    if (player->m_InstanceValid == false && !mInstance)
+    if (player->m_InstanceValid == false && !mEntry->IsDungeon())
         player->m_InstanceValid = true;
 
     Map* oldMap = player->GetMap();
@@ -191,20 +190,27 @@ void WorldSession::HandleMoveWorldportAck()
         }
     }
 
-    if (mInstance)
+    if (mEntry->IsDungeon())
     {
         // check if this instance has a reset time and send it to player if so
-        Difficulty diff = newMap->GetDifficultyID();
-        if (MapDifficultyEntry const* mapDiff = sDB2Manager.GetMapDifficultyData(mEntry->ID, diff))
+        MapDb2Entries entries{ mEntry->ID, newMap->GetDifficultyID() };
+        if (entries.MapDifficulty->HasResetSchedule())
         {
-            if (mapDiff->GetRaidDuration())
+            WorldPackets::Instance::RaidInstanceMessage raidInstanceMessage;
+            raidInstanceMessage.Type = RAID_INSTANCE_WELCOME;
+            raidInstanceMessage.MapID = mEntry->ID;
+            raidInstanceMessage.DifficultyID = newMap->GetDifficultyID();
+            if (InstanceLock const* playerLock = sInstanceLockMgr.FindActiveInstanceLock(GetPlayer()->GetGUID(), entries))
             {
-                if (time_t timeReset = sInstanceSaveMgr->GetResetTimeFor(mEntry->ID, diff))
-                {
-                    uint32 timeleft = uint32(timeReset - GameTime::GetGameTime());
-                    player->SendInstanceResetWarning(mEntry->ID, diff, timeleft, true);
-                }
+                raidInstanceMessage.Locked = !playerLock->IsExpired();
+                raidInstanceMessage.Extended = playerLock->IsExtended();
             }
+            else
+            {
+                raidInstanceMessage.Locked = false;
+                raidInstanceMessage.Extended = false;
+            }
+            SendPacket(raidInstanceMessage.Write());
         }
 
         // check if instance is valid

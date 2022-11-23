@@ -267,7 +267,8 @@ enum WorldIntConfigs
     CONFIG_CURRENCY_RESET_INTERVAL,
     CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL,
     CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL_DIFFERENCE,
-    CONFIG_INSTANCE_RESET_TIME_HOUR,
+    CONFIG_RESET_SCHEDULE_WEEK_DAY,
+    CONFIG_RESET_SCHEDULE_HOUR,
     CONFIG_INSTANCE_UNLOAD_DELAY,
     CONFIG_DAILY_QUEST_RESET_TIME_HOUR,
     CONFIG_WEEKLY_QUEST_RESET_TIME_WDAY,
@@ -561,6 +562,8 @@ enum RealmZone
     REALM_ZONE_CN5_8         = 37                           // basic-Latin at create, any at login
 };
 
+struct PersistentWorldVariable;
+
 /// Storage class for commands issued for delayed execution
 struct TC_GAME_API CliCommandHolder
 {
@@ -746,9 +749,19 @@ class TC_GAME_API World
             return index < INT64_CONFIT_VALUE_COUNT ? m_int64_configs[index] : 0;
         }
 
-        void setWorldState(uint32 index, uint32 value);
-        uint32 getWorldState(uint32 index) const;
-        void LoadWorldStates();
+        static PersistentWorldVariable const NextCurrencyResetTimeVarId;                    // Next arena distribution time
+        static PersistentWorldVariable const NextWeeklyQuestResetTimeVarId;                 // Next weekly quest reset time
+        static PersistentWorldVariable const NextBGRandomDailyResetTimeVarId;               // Next daily BG reset time
+        static PersistentWorldVariable const CharacterDatabaseCleaningFlagsVarId;           // Cleaning Flags
+        static PersistentWorldVariable const NextGuildDailyResetTimeVarId;                  // Next guild cap reset time
+        static PersistentWorldVariable const NextMonthlyQuestResetTimeVarId;                // Next monthly quest reset time
+        static PersistentWorldVariable const NextDailyQuestResetTimeVarId;                  // Next daily quest reset time
+        static PersistentWorldVariable const NextOldCalendarEventDeletionTimeVarId;         // Next daily calendar deletions of old events time
+        static PersistentWorldVariable const NextGuildWeeklyResetTimeVarId;                 // Next guild week reset time
+
+        int32 GetPersistentWorldVariable(PersistentWorldVariable const& var) const;
+        void SetPersistentWorldVariable(PersistentWorldVariable const& var, int32 value);
+        void LoadPersistentWorldVariables();
 
         /// Are we on a "Player versus Player" server?
         bool IsPvPRealm() const;
@@ -862,8 +875,7 @@ class TC_GAME_API World
         uint64 m_int64_configs[INT64_CONFIT_VALUE_COUNT];
         bool m_bool_configs[BOOL_CONFIG_VALUE_COUNT];
         float m_float_configs[FLOAT_CONFIG_VALUE_COUNT];
-        typedef std::map<uint32, uint32> WorldStatesMap;
-        WorldStatesMap m_worldstates;
+        std::unordered_map<std::string, int32> m_worldVariables;
         uint32 m_playerLimit;
         AccountTypes m_allowedSecurityLevel;
         LocaleConstant m_defaultDbcLocale;                     // from config for one from loaded DBC locales

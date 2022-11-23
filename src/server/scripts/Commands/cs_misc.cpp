@@ -27,13 +27,10 @@
 #include "DisableMgr.h"
 #include "GridNotifiers.h"
 #include "Group.h"
-#include "InstanceSaveMgr.h"
 #include "IpAddress.h"
 #include "IPLocation.h"
 #include "Item.h"
 #include "Language.h"
-#include "Log.h"
-#include "MapManager.h"
 #include "MiscPackets.h"
 #include "MMapFactory.h"
 #include "MotionMaster.h"
@@ -46,6 +43,7 @@
 #include "SpellAuras.h"
 #include "SpellHistory.h"
 #include "SpellMgr.h"
+#include "TerrainMgr.h"
 #include "Transport.h"
 #include "Weather.h"
 #include "World.h"
@@ -262,8 +260,8 @@ public:
         int gridX = (MAX_NUMBER_OF_GRIDS - 1) - gridCoord.x_coord;
         int gridY = (MAX_NUMBER_OF_GRIDS - 1) - gridCoord.y_coord;
 
-        uint32 haveMap = Map::ExistMap(mapId, gridX, gridY) ? 1 : 0;
-        uint32 haveVMap = Map::ExistVMap(mapId, gridX, gridY) ? 1 : 0;
+        uint32 haveMap = TerrainInfo::ExistMap(mapId, gridX, gridY) ? 1 : 0;
+        uint32 haveVMap = TerrainInfo::ExistVMap(mapId, gridX, gridY) ? 1 : 0;
         uint32 haveMMap = (DisableMgr::IsPathfindingEnabled(mapId) && MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(handler->GetSession()->GetPlayer()->GetMapId())) ? 1 : 0;
 
         if (haveVMap)
@@ -420,19 +418,6 @@ public:
                     }
                 }
 
-                // if the player or the player's group is bound to another instance
-                // the player will not be bound to another one
-                InstancePlayerBind* bind = _player->GetBoundInstance(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
-                if (!bind)
-                {
-                    Group* group = _player->GetGroup();
-                    // if no bind exists, create a solo bind
-                    InstanceGroupBind* gBind = group ? group->GetBoundInstance(target) : nullptr;                // if no bind exists, create a solo bind
-                    if (!gBind)
-                        if (InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(target->GetInstanceId()))
-                            _player->BindToInstance(save, !save->CanReset());
-                }
-
                 if (map->IsRaid())
                 {
                     _player->SetRaidDifficultyID(target->GetRaidDifficultyID());
@@ -540,7 +525,7 @@ public:
                 if (!target->GetMap()->IsBattlegroundOrArena())
                     target->SetBattlegroundEntryPoint();
             }
-            else if (map->Instanceable())
+            else if (map->IsDungeon())
             {
                 Map* targetMap = target->GetMap();
                 Player* targetGroupLeader = nullptr;
@@ -1127,7 +1112,7 @@ public:
             return false;
         }
 
-        uint32 offset = area->AreaBit / 64;
+        uint32 offset = area->AreaBit / PLAYER_EXPLORED_ZONES_BITS;
         if (offset >= PLAYER_EXPLORED_ZONES_SIZE)
         {
             handler->SendSysMessage(LANG_BAD_VALUE);
@@ -1135,7 +1120,7 @@ public:
             return false;
         }
 
-        uint64 val = UI64LIT(1) << (area->AreaBit % 64);
+        uint64 val = UI64LIT(1) << (area->AreaBit % PLAYER_EXPLORED_ZONES_BITS);
         playerTarget->AddExploredZones(offset, val);
 
         handler->SendSysMessage(LANG_EXPLORE_AREA);
@@ -1167,7 +1152,7 @@ public:
             return false;
         }
 
-        uint32 offset = area->AreaBit / 64;
+        uint32 offset = area->AreaBit / PLAYER_EXPLORED_ZONES_BITS;
         if (offset >= PLAYER_EXPLORED_ZONES_SIZE)
         {
             handler->SendSysMessage(LANG_BAD_VALUE);
@@ -1175,7 +1160,7 @@ public:
             return false;
         }
 
-        uint64 val = UI64LIT(1) << (area->AreaBit % 64);
+        uint64 val = UI64LIT(1) << (area->AreaBit % PLAYER_EXPLORED_ZONES_BITS);
         playerTarget->RemoveExploredZones(offset, val);
 
         handler->SendSysMessage(LANG_UNEXPLORE_AREA);

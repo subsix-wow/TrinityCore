@@ -178,7 +178,7 @@ void WorldPackets::Misc::TutorialSetFlag::Read()
 WorldPacket const* WorldPackets::Misc::WorldServerInfo::Write()
 {
     _worldPacket << uint32(DifficultyID);
-    _worldPacket << uint8(IsTournamentRealm);
+    _worldPacket.WriteBit(IsTournamentRealm);
     _worldPacket.WriteBit(XRealmPvpAlert);
     _worldPacket.WriteBit(BlockExitingLoadingScreen);
     _worldPacket.WriteBit(RestrictedAccountMaxLevel.has_value());
@@ -724,8 +724,8 @@ void WorldPackets::Misc::CloseInteraction::Read()
 
 WorldPacket const* WorldPackets::Misc::StartTimer::Write()
 {
-    _worldPacket << TimeLeft;
     _worldPacket << TotalTime;
+    _worldPacket << TimeLeft;
     _worldPacket << int32(Type);
 
     return &_worldPacket;

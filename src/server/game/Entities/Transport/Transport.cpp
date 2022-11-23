@@ -24,7 +24,6 @@
 #include "GameObjectAI.h"
 #include "GameTime.h"
 #include "Log.h"
-#include "MapManager.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
 #include "Player.h"
@@ -42,12 +41,6 @@ void TransportBase::UpdatePassengerPosition(Map* map, WorldObject* passenger, fl
     // transport teleported but passenger not yet (can happen for players)
     if (passenger->GetMap() != map)
         return;
-
-    // if passenger is on vehicle we have to assume the vehicle is also on transport
-    // and its the vehicle that will be updating its passengers
-    if (Unit* unit = passenger->ToUnit())
-        if (unit->GetVehicle())
-            return;
 
     // Do not use Unit::UpdatePosition here, we don't want to remove auras
     // as if regular movement occurred

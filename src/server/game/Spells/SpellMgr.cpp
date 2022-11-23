@@ -750,7 +750,7 @@ bool SpellArea::IsFitToRequirements(Player const* player, uint32 newZone, uint32
             if (!player)
                 return false;
 
-            Battlefield* Bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetZoneId());
+            Battlefield* Bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetMap(), player->GetZoneId());
             if (!Bf || Bf->CanFlyIn() || (!player->HasAuraType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) && !player->HasAuraType(SPELL_AURA_FLY)))
                 return false;
             break;
@@ -761,7 +761,7 @@ bool SpellArea::IsFitToRequirements(Player const* player, uint32 newZone, uint32
             if (!player)
                 return false;
 
-            Battlefield* bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetZoneId());
+            Battlefield* bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetMap(), player->GetZoneId());
 
             if (!bf || bf->GetTypeId() != BATTLEFIELD_WG)
                 return false;
@@ -781,7 +781,7 @@ bool SpellArea::IsFitToRequirements(Player const* player, uint32 newZone, uint32
             if (!player)
                 return false;
 
-            if (Battlefield* battlefieldWG = sBattlefieldMgr->GetBattlefieldByBattleId(BATTLEFIELD_BATTLEID_WG))
+            if (Battlefield* battlefieldWG = sBattlefieldMgr->GetBattlefieldByBattleId(player->GetMap(), BATTLEFIELD_BATTLEID_WG))
                 return battlefieldWG->IsEnabled() && (player->GetTeamId() == battlefieldWG->GetDefenderTeam()) && !battlefieldWG->IsWarTime();
             break;
         }
@@ -790,7 +790,7 @@ bool SpellArea::IsFitToRequirements(Player const* player, uint32 newZone, uint32
             if (!player)
                 return false;
 
-            if (Battlefield* bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetZoneId()))
+            if (Battlefield* bf = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetMap(), player->GetZoneId()))
                 return bf->IsWarTime();
             break;
         }
@@ -2105,15 +2105,12 @@ void SpellMgr::LoadPetLevelupSpellMap()
             if (!creatureFamily->SkillLine[j])
                 continue;
 
-            for (uint32 k = 0; k < sSkillLineAbilityStore.GetNumRows(); ++k)
+            std::vector<SkillLineAbilityEntry const*> const* skillLineAbilities = sDB2Manager.GetSkillLineAbilitiesBySkill(creatureFamily->SkillLine[j]);
+            if (!skillLineAbilities)
+                continue;
+
+            for (SkillLineAbilityEntry const* skillLine : *skillLineAbilities)
             {
-                SkillLineAbilityEntry const* skillLine = sSkillLineAbilityStore.LookupEntry(k);
-                if (!skillLine)
-                    continue;
-
-                if (skillLine->SkillLine != creatureFamily->SkillLine[j])
-                    continue;
-
                 if (skillLine->AcquireMethod != SKILL_LINE_ABILITY_LEARNED_ON_SKILL_LEARN)
                     continue;
 
@@ -3203,6 +3200,10 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
                 }
             }
         }
+
+        // Saving to DB happens before removing from world - skip saving these auras
+        if (spellInfoMutable->HasAuraInterruptFlag(SpellAuraInterruptFlags::LeaveWorld))
+            spellInfoMutable->AttributesCu |= SPELL_ATTR0_CU_AURA_CANNOT_BE_SAVED;
     }
 
     // addition for binary spells, omit spells triggering other spells
@@ -3397,15 +3398,6 @@ void SpellMgr::LoadSpellInfoCorrections()
                 spellEffectInfo->ApplyAuraName = SPELL_AURA_PERIODIC_TRIGGER_SPELL;
             });
         });
-
-        // Lich Pet
-        ApplySpellFix({ 70050 }, [](SpellInfo* spellInfo)
-        {
-            ApplySpellEffectFix(spellInfo, EFFECT_0, [](SpellEffectInfo* spellEffectInfo)
-            {
-                spellEffectInfo->TriggerSpell = 70049;
-            });
-        });
     }
 
     // Allows those to crit
@@ -3550,14 +3542,17 @@ void SpellMgr::LoadSpellInfoCorrections()
         38762, // Force of Neltharaku
         51122, // Fierce Lightning Stike
         71848, // Toxic Wasteling Find Target
-        36146  // Chains of Naberius
+        36146, // Chains of Naberius
+        33711, // Murmur's Touch
+        38794  // Murmur's Touch
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->MaxAffectedTargets = 1;
     });
 
     ApplySpellFix({
-        36384  // Skartax Purple Beam
+        36384, // Skartax Purple Beam
+        47731  // Critter
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->MaxAffectedTargets = 2;
@@ -3602,18 +3597,13 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->MaxAffectedTargets = 5;
     });
 
-    // Curse of the Plaguebringer - Noth (H)
-    ApplySpellFix({ 54835 }, [](SpellInfo* spellInfo)
-    {
-        spellInfo->MaxAffectedTargets = 8;
-    });
-
     ApplySpellFix({
         40827, // Sinful Beam
         40859, // Sinister Beam
         40860, // Vile Beam
         40861, // Wicked Beam
-        54098  // Poison Bolt Volly - Faerlina (H)
+        54098, // Poison Bolt Volly - Faerlina (H)
+        54835  // Curse of the Plaguebringer - Noth (H)
     }, [](SpellInfo* spellInfo)
     {
         spellInfo->MaxAffectedTargets = 10;
@@ -3623,16 +3613,6 @@ void SpellMgr::LoadSpellInfoCorrections()
     ApplySpellFix({ 50312 }, [](SpellInfo* spellInfo)
     {
         spellInfo->MaxAffectedTargets = 15;
-    });
-
-    // Murmur's Touch
-    ApplySpellFix({ 33711, 38794 }, [](SpellInfo* spellInfo)
-    {
-        spellInfo->MaxAffectedTargets = 1;
-        ApplySpellEffectFix(spellInfo, EFFECT_0, [](SpellEffectInfo* spellEffectInfo)
-        {
-            spellEffectInfo->TriggerSpell = 33760;
-        });
     });
 
     // Fingers of Frost
@@ -4643,6 +4623,12 @@ void SpellMgr::LoadSpellInfoCorrections()
         {
             spellEffectInfo->Effect = SPELL_EFFECT_APPLY_AURA;
         });
+    });
+
+    // Ray of Frost (Fingers of Frost charges)
+    ApplySpellFix({ 269748 }, [](SpellInfo* spellInfo)
+    {
+        spellInfo->AttributesEx &= ~SPELL_ATTR1_IS_CHANNELLED;
     });
 
     for (SpellInfo const& s : mSpellInfoMap)

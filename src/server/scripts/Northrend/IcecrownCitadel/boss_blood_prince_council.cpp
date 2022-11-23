@@ -327,8 +327,7 @@ struct boss_blood_council_controller : public BossAI
             if (Creature* prince = ObjectAccessor::GetCreature(*me, _invocationOrder[_invocationStage].guid))
             {
                 // Make sure looting is allowed
-                if (me->IsDamageEnoughForLootingAndReward())
-                    prince->LowerPlayerDamageReq(prince->GetMaxHealth());
+                prince->LowerPlayerDamageReq(prince->GetMaxHealth());
                 Unit::Kill(killer, prince);
             }
         }
@@ -556,7 +555,7 @@ struct BloodPrincesBossAI : public BossAI
                 me->RemoveAurasDueToSpell(SPELL_FEIGN_DEATH);
                 me->RemoveUnitFlag(UNIT_FLAG_UNINTERACTIBLE);
                 me->SetImmuneToPC(false);
-                me->RemoveDynamicFlag(UNIT_DYNFLAG_DEAD);
+                me->RemoveUnitFlag3(UNIT_FLAG3_FAKE_DEAD);
                 me->m_Events.AddEvent(new StandUpEvent(me), me->m_Events.CalculateTime(1s));
                 break;
             case ACTION_CAST_INVOCATION:

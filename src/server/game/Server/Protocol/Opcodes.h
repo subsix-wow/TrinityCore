@@ -837,10 +837,6 @@ enum OpcodeClient : uint16
     CMSG_WHO_IS                                       = 0x367F,
     CMSG_WORLD_PORT_RESPONSE                          = 0x35F9,
     CMSG_WRAP_ITEM                                    = 0x3994,
-
-    CMSG_BF_MGR_ENTRY_INVITE_RESPONSE                 = 0xBADD,
-    CMSG_BF_MGR_QUEUE_INVITE_RESPONSE                 = 0xBADD,
-    CMSG_BF_MGR_QUEUE_EXIT_REQUEST                    = 0xBADD,
 };
 
 enum OpcodeServer : uint16
@@ -904,6 +900,7 @@ enum OpcodeServer : uint16
     SMSG_AUCTIONABLE_TOKEN_SELL_CONFIRM_REQUIRED      = 0x27C5,
     SMSG_AUCTION_CLOSED_NOTIFICATION                  = 0x26E7,
     SMSG_AUCTION_COMMAND_RESULT                       = 0x26E4,
+    SMSG_AUCTION_DISABLE_POSTING_BEFORE_MAINTENANCE   = 0x287F,
     SMSG_AUCTION_FAVORITE_LIST                        = 0x285F,
     SMSG_AUCTION_GET_COMMODITY_QUOTE_RESULT           = 0x2856,
     SMSG_AUCTION_HELLO_RESPONSE                       = 0x26E2,
@@ -1987,11 +1984,6 @@ enum OpcodeServer : uint16
 
     // Deleted opcodes, here only to allow compile
     SMSG_ARENA_TEAM_STATS                             = 0xBADD,
-    SMSG_BF_MGR_EJECTED                               = 0xBADD,
-    SMSG_BF_MGR_ENTERING                              = 0xBADD,
-    SMSG_BF_MGR_ENTRY_INVITE                          = 0xBADD,
-    SMSG_BF_MGR_QUEUE_INVITE                          = 0xBADD,
-    SMSG_BF_MGR_QUEUE_REQUEST_RESPONSE                = 0xBADD,
 };
 
 inline bool IsInstanceOnlyOpcode(uint32 opcode)
