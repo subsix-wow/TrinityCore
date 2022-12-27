@@ -614,7 +614,7 @@ void Unit::resetAttackTimer(WeaponAttackType type)
 
 bool Unit::IsWithinCombatRange(Unit const* obj, float dist2compare) const
 {
-    if (!obj || !IsInMap(obj) || !IsInPhase(obj))
+    if (!obj || !IsInMap(obj) || !InSamePhase(obj))
         return false;
 
     float dx = GetPositionX() - obj->GetPositionX();
@@ -630,7 +630,7 @@ bool Unit::IsWithinCombatRange(Unit const* obj, float dist2compare) const
 
 bool Unit::IsWithinMeleeRangeAt(Position const& pos, Unit const* obj) const
 {
-    if (!obj || !IsInMap(obj) || !IsInPhase(obj))
+    if (!obj || !IsInMap(obj) || !InSamePhase(obj))
         return false;
 
     float dx = pos.GetPositionX() - obj->GetPositionX();
@@ -651,7 +651,7 @@ float Unit::GetMeleeRange(Unit const* target) const
 
 bool Unit::IsWithinBoundaryRadius(const Unit* obj) const
 {
-    if (!obj || !IsInMap(obj) || !IsInPhase(obj))
+    if (!obj || !IsInMap(obj) || !InSamePhase(obj))
         return false;
 
     float objBoundaryRadius = std::max(obj->GetBoundingRadius(), MIN_MELEE_REACH);
@@ -3893,7 +3893,7 @@ void Unit::RemoveNotOwnSingleTargetAuras(bool onPhaseChange /*= false*/)
             else
             {
                 Unit* caster = aura->GetCaster();
-                if (!caster || !caster->IsInPhase(this))
+                if (!caster || !caster->InSamePhase(this))
                     RemoveOwnedAura(iter);
                 else
                     ++iter;
@@ -3908,7 +3908,7 @@ void Unit::RemoveNotOwnSingleTargetAuras(bool onPhaseChange /*= false*/)
     for (AuraList::iterator iter = scAuras.begin(); iter != scAuras.end();)
     {
         Aura* aura = *iter;
-        if (aura->GetUnitOwner() != this && (!onPhaseChange || !aura->GetUnitOwner()->IsInPhase(this)))
+        if (aura->GetUnitOwner() != this && (!onPhaseChange || !aura->GetUnitOwner()->InSamePhase(this)))
         {
             aura->Remove();
             iter = scAuras.begin();
@@ -4011,7 +4011,7 @@ void Unit::RemoveMovementImpairingAuras(bool withRoot)
     RemoveAurasWithMechanic(1 << MECHANIC_SNARE, AURA_REMOVE_BY_DEFAULT, 0, false);
 }
 
-void Unit::RemoveAurasWithMechanic(uint32 mechanicMaskToRemove, AuraRemoveMode removeMode, uint32 exceptSpellId, bool withEffectMechanics)
+void Unit::RemoveAurasWithMechanic(uint64 mechanicMaskToRemove, AuraRemoveMode removeMode, uint32 exceptSpellId, bool withEffectMechanics)
 {
     RemoveAppliedAuras([=](AuraApplication const* aurApp)
     {
@@ -4019,12 +4019,12 @@ void Unit::RemoveAurasWithMechanic(uint32 mechanicMaskToRemove, AuraRemoveMode r
         if (exceptSpellId && aura->GetId() == exceptSpellId)
             return false;
 
-        uint32 appliedMechanicMask = aura->GetSpellInfo()->GetSpellMechanicMaskByEffectMask(aurApp->GetEffectMask());
+        uint64 appliedMechanicMask = aura->GetSpellInfo()->GetSpellMechanicMaskByEffectMask(aurApp->GetEffectMask());
         if (!(appliedMechanicMask & mechanicMaskToRemove))
             return false;
 
         // spell mechanic matches required mask for removal
-        if ((1 << aura->GetSpellInfo()->Mechanic) & mechanicMaskToRemove || withEffectMechanics)
+        if ((UI64LIT(1) << aura->GetSpellInfo()->Mechanic) & mechanicMaskToRemove || withEffectMechanics)
             return true;
 
         // effect mechanic matches required mask for removal - don't remove, only update targets
@@ -4035,7 +4035,7 @@ void Unit::RemoveAurasWithMechanic(uint32 mechanicMaskToRemove, AuraRemoveMode r
 
 void Unit::RemoveAurasByShapeShift()
 {
-    uint32 mechanic_mask = (1 << MECHANIC_SNARE) | (1 << MECHANIC_ROOT);
+    uint64 mechanic_mask = (1 << MECHANIC_SNARE) | (1 << MECHANIC_ROOT);
     for (AuraApplicationMap::iterator iter = m_appliedAuras.begin(); iter != m_appliedAuras.end();)
     {
         Aura const* aura = iter->second->GetBase();
@@ -4578,17 +4578,17 @@ bool Unit::HasNegativeAuraWithInterruptFlag(InterruptFlags flag, ObjectGuid guid
 template TC_GAME_API bool Unit::HasNegativeAuraWithInterruptFlag(SpellAuraInterruptFlags flag, ObjectGuid guid) const;
 template TC_GAME_API bool Unit::HasNegativeAuraWithInterruptFlag(SpellAuraInterruptFlags2 flag, ObjectGuid guid) const;
 
-bool Unit::HasAuraWithMechanic(uint32 mechanicMask) const
+bool Unit::HasAuraWithMechanic(uint64 mechanicMask) const
 {
     for (AuraApplicationMap::const_iterator iter = m_appliedAuras.begin(); iter != m_appliedAuras.end(); ++iter)
     {
         SpellInfo const* spellInfo = iter->second->GetBase()->GetSpellInfo();
-        if (spellInfo->Mechanic && (mechanicMask & (1 << spellInfo->Mechanic)))
+        if (spellInfo->Mechanic && (mechanicMask & (UI64LIT(1) << spellInfo->Mechanic)))
             return true;
 
         for (SpellEffectInfo const& spellEffectInfo : spellInfo->GetEffects())
             if (iter->second->HasEffect(spellEffectInfo.EffectIndex) && spellEffectInfo.IsEffect() && spellEffectInfo.Mechanic)
-                if (mechanicMask & (1 << spellEffectInfo.Mechanic))
+                if (mechanicMask & (UI64LIT(1) << spellEffectInfo.Mechanic))
                     return true;
     }
 
@@ -6604,11 +6604,11 @@ uint32 Unit::SpellDamageBonusTaken(Unit* caster, SpellInfo const* spellProto, ui
     float TakenTotalMod = 1.0f;
 
     // Mod damage from spell mechanic
-    if (uint32 mechanicMask = spellProto->GetAllEffectsMechanicMask())
+    if (uint64 mechanicMask = spellProto->GetAllEffectsMechanicMask())
     {
         TakenTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_MECHANIC_DAMAGE_TAKEN_PERCENT, [mechanicMask](AuraEffect const* aurEff) -> bool
         {
-            if (mechanicMask & uint32(1 << (aurEff->GetMiscValue())))
+            if (mechanicMask & uint64(UI64LIT(1) << aurEff->GetMiscValue()))
                 return true;
             return false;
         });
@@ -6644,6 +6644,11 @@ uint32 Unit::SpellDamageBonusTaken(Unit* caster, SpellInfo const* spellProto, ui
             TakenTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_SPELL_DAMAGE_FROM_CASTER, [caster, spellProto](AuraEffect const* aurEff) -> bool
             {
                 return aurEff->GetCasterGUID() == caster->GetGUID() && aurEff->IsAffectingSpell(spellProto);
+            });
+
+            TakenTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_DAMAGE_TAKEN_FROM_CASTER_BY_LABEL, [caster, spellProto](AuraEffect const* aurEff) -> bool
+            {
+                return aurEff->GetCasterGUID() == caster->GetGUID() && spellProto->HasLabel(aurEff->GetMiscValue());
             });
         }
 
@@ -7310,12 +7315,12 @@ uint32 Unit::GetDamageImmunityMask() const
     return mask;
 }
 
-uint32 Unit::GetMechanicImmunityMask() const
+uint64 Unit::GetMechanicImmunityMask() const
 {
-    uint32 mask = 0;
+    uint64 mask = 0;
     SpellImmuneContainer const& mechanicList = m_spellImmune[IMMUNITY_MECHANIC];
     for (auto itr = mechanicList.begin(); itr != mechanicList.end(); ++itr)
-        mask |= (1 << itr->first);
+        mask |= (UI64LIT(1) << itr->first);
 
     return mask;
 }
@@ -7520,7 +7525,7 @@ uint32 Unit::MeleeDamageBonusTaken(Unit* attacker, uint32 pdamage, WeaponAttackT
         });
 
         // Mod damage from spell mechanic
-        uint32 mechanicMask = spellProto->GetAllEffectsMechanicMask();
+        uint64 mechanicMask = spellProto->GetAllEffectsMechanicMask();
 
         // Shred, Maul - "Effects which increase Bleed damage also increase Shred damage"
         if (spellProto->SpellFamilyName == SPELLFAMILY_DRUID && spellProto->SpellFamilyFlags[0] & 0x00008800)
@@ -7530,7 +7535,7 @@ uint32 Unit::MeleeDamageBonusTaken(Unit* attacker, uint32 pdamage, WeaponAttackT
         {
             TakenTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_MECHANIC_DAMAGE_TAKEN_PERCENT, [mechanicMask](AuraEffect const* aurEff) -> bool
             {
-                if (mechanicMask & uint32(1 << (aurEff->GetMiscValue())))
+                if (mechanicMask & uint64(UI64LIT(1) << (aurEff->GetMiscValue())))
                     return true;
                 return false;
             });
@@ -8198,7 +8203,7 @@ void Unit::UpdateSpeed(UnitMoveType mtype)
             {
                 if (Creature* creature = ToCreature())
                 {
-                    uint32 immuneMask = creature->GetCreatureTemplate()->MechanicImmuneMask;
+                    uint64 immuneMask = creature->GetCreatureTemplate()->MechanicImmuneMask;
                     if (immuneMask & (1 << (MECHANIC_SNARE - 1)) || immuneMask & (1 << (MECHANIC_DAZE - 1)))
                         break;
                 }
