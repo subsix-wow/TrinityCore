@@ -167,7 +167,7 @@ Player::Player(WorldSession* session) : Unit(true), m_sceneMgr(this)
     if (!GetSession()->HasPermission(rbac::RBAC_PERM_CAN_FILTER_WHISPERS))
         SetAcceptWhispers(true);
 
-    m_combatExitTime = 0;
+    m_regenInterruptTimestamp = GameTime::Now();
     m_regenTimer = 0;
     m_regenTimerCount = 0;
     m_foodEmoteTimerCount = 0;
@@ -487,7 +487,6 @@ bool Player::Create(ObjectGuid::LowType guidlow, WorldPackets::Character::Charac
     }
 
     SetUnitFlag2(UNIT_FLAG2_REGENERATE_POWER);
-    SetHoverHeight(1.0f);            // default for players in 3.0.3
 
     SetWatchedFactionIndex(-1);
 
@@ -1299,9 +1298,9 @@ void Player::ToggleDND()
         SetPlayerFlag(PLAYER_FLAGS_DND);
 }
 
-uint8 Player::GetChatFlags() const
+uint16 Player::GetChatFlags() const
 {
-    uint8 tag = CHAT_FLAG_NONE;
+    uint16 tag = CHAT_FLAG_NONE;
 
     if (isGMChat())
         tag |= CHAT_FLAG_GM;
@@ -1781,7 +1780,7 @@ void Player::Regenerate(Powers power)
     float addvalue = 0.0f;
     if (!IsInCombat())
     {
-        if (powerType->RegenInterruptTimeMS && GetMSTimeDiffToNow(m_combatExitTime) < uint32(powerType->RegenInterruptTimeMS))
+        if (powerType->GetFlags().HasFlag(PowerTypeFlags::UseRegenInterrupt) && m_regenInterruptTimestamp + Milliseconds(powerType->RegenInterruptTimeMS) < GameTime::Now())
             return;
 
         addvalue = (powerType->RegenPeace + m_unitData->PowerRegenFlatModifier[powerIndex]) * 0.001f * m_regenTimer;
@@ -1810,6 +1809,13 @@ void Player::Regenerate(Powers power)
         RATE_POWER_ARCANE_CHARGES,
         RATE_POWER_FURY,
         RATE_POWER_PAIN,
+        RATE_POWER_ESSENCE,
+        MAX_RATES, // runes
+        MAX_RATES, // runes
+        MAX_RATES, // runes
+        MAX_RATES, // alternate
+        MAX_RATES, // alternate
+        MAX_RATES, // alternate
     };
 
     if (RatesForPower[power] != MAX_RATES)
@@ -1902,6 +1908,17 @@ void Player::Regenerate(Powers power)
             const_cast<UF::UnitData&>(*m_unitData).ClearChanged(&UF::UnitData::Power, powerIndex);
         });
     }
+}
+
+void Player::InterruptPowerRegen(Powers power)
+{
+    uint32 powerIndex = GetPowerIndex(power);
+    if (powerIndex == MAX_POWERS || powerIndex >= MAX_POWERS_PER_CLASS)
+        return;
+
+    m_regenInterruptTimestamp = GameTime::Now();
+    m_powerFraction[powerIndex] = 0.0f;
+    SendDirectMessage(WorldPackets::Combat::InterruptPowerRegen(power).Write());
 }
 
 void Player::RegenerateHealth()
@@ -2383,7 +2400,9 @@ void Player::GiveLevel(uint8 level)
 
     // Only health and mana are set to maximum.
     SetFullHealth();
-    SetFullPower(POWER_MANA);
+    for (PowerTypeEntry const* powerType : sPowerTypeStore)
+        if (powerType->GetFlags().HasFlag(PowerTypeFlags::SetToMaxOnLevelUp))
+            SetFullPower(Powers(powerType->PowerTypeEnum));
 
     // update level to hunter/summon pet
     if (Pet* pet = GetPet())
@@ -4381,6 +4400,8 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
+    SetAreaSpiritHealer(nullptr);
+
     WorldPackets::Misc::DeathReleaseLoc packet;
     packet.MapID = -1;
     SendDirectMessage(packet.Write());
@@ -5548,16 +5569,22 @@ bool Player::UpdateCraftSkill(SpellInfo const* spellInfo)
     return false;
 }
 
-bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLevel, uint32 Multiplicator /*= 1*/, WorldObject const* object /*= nullptr*/)
+bool Player::UpdateGatherSkill(uint32 skillId, uint32 skillValue, uint32 redLevel, uint32 multiplicator /*= 1*/, WorldObject const* object /*= nullptr*/)
 {
     TC_LOG_DEBUG("entities.player.skills", "Player::UpdateGatherSkill: Player '{}' ({}), SkillID: {}, SkillLevel: {},  RedLevel: {})",
-        GetName(), GetGUID().ToString(), SkillId, SkillValue, RedLevel);
+        GetName(), GetGUID().ToString(), skillId, skillValue, redLevel);
 
-    uint32 gathering_skill_gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
+    SkillLineEntry const* skillEntry = sSkillLineStore.LookupEntry(skillId);
+    if (!skillEntry)
+        return false;
 
-    uint32 grayLevel = RedLevel + 100;
-    uint32 greenLevel = RedLevel + 50;
-    uint32 yellowLevel = RedLevel + 25;
+    uint32 gatheringSkillGain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
+
+    uint32 baseSkillLevelStep = 30;
+    uint32 yellowLevel = redLevel + baseSkillLevelStep;
+    uint32 greenLevel = yellowLevel + baseSkillLevelStep;
+    uint32 grayLevel = greenLevel + baseSkillLevelStep;
+
     if (GameObject const* go = Object::ToGameObject(object))
     {
         if (go->GetGOInfo()->GetTrivialSkillLow())
@@ -5570,46 +5597,20 @@ bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLeve
     }
 
     // For skinning and Mining chance decrease with level. 1-74 - no decrease, 75-149 - 2 times, 225-299 - 8 times
-    switch (SkillId)
+    switch (skillEntry->ParentSkillLineID)
     {
         case SKILL_HERBALISM:
-        case SKILL_CLASSIC_HERBALISM:
-        case SKILL_OUTLAND_HERBALISM:
-        case SKILL_NORTHREND_HERBALISM:
-        case SKILL_CATACLYSM_HERBALISM:
-        case SKILL_PANDARIA_HERBALISM:
-        case SKILL_DRAENOR_HERBALISM:
-        case SKILL_LEGION_HERBALISM:
-        case SKILL_KUL_TIRAN_HERBALISM:
-        case SKILL_JEWELCRAFTING:
-        case SKILL_INSCRIPTION:
-            return UpdateSkillPro(SkillId, SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) * Multiplicator, gathering_skill_gain);
+            return UpdateSkillPro(skillId, SkillGainChance(skillValue, grayLevel, greenLevel, yellowLevel) * multiplicator, gatheringSkillGain);
         case SKILL_SKINNING:
-        case SKILL_CLASSIC_SKINNING:
-        case SKILL_OUTLAND_SKINNING:
-        case SKILL_NORTHREND_SKINNING:
-        case SKILL_CATACLYSM_SKINNING:
-        case SKILL_PANDARIA_SKINNING:
-        case SKILL_DRAENOR_SKINNING:
-        case SKILL_LEGION_SKINNING:
-        case SKILL_KUL_TIRAN_SKINNING:
             if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS) == 0)
-                return UpdateSkillPro(SkillId, SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) * Multiplicator, gathering_skill_gain);
+                return UpdateSkillPro(skillId, SkillGainChance(skillValue, grayLevel, greenLevel, yellowLevel) * multiplicator, gatheringSkillGain);
             else
-                return UpdateSkillPro(SkillId, (SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) * Multiplicator) >> (SkillValue / sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS)), gathering_skill_gain);
+                return UpdateSkillPro(skillId, (SkillGainChance(skillValue, grayLevel, greenLevel, yellowLevel) * multiplicator) >> (skillValue / sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS)), gatheringSkillGain);
         case SKILL_MINING:
-        case SKILL_CLASSIC_MINING:
-        case SKILL_OUTLAND_MINING:
-        case SKILL_NORTHREND_MINING:
-        case SKILL_CATACLYSM_MINING:
-        case SKILL_PANDARIA_MINING:
-        case SKILL_DRAENOR_MINING:
-        case SKILL_LEGION_MINING:
-        case SKILL_KUL_TIRAN_MINING:
             if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS) == 0)
-                return UpdateSkillPro(SkillId, SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) * Multiplicator, gathering_skill_gain);
+                return UpdateSkillPro(skillId, SkillGainChance(skillValue, grayLevel, greenLevel, yellowLevel) * multiplicator, gatheringSkillGain);
             else
-                return UpdateSkillPro(SkillId, (SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) * Multiplicator) >> (SkillValue / sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS)), gathering_skill_gain);
+                return UpdateSkillPro(skillId, (SkillGainChance(skillValue, grayLevel, greenLevel, yellowLevel) * multiplicator) >> (skillValue / sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS)), gatheringSkillGain);
     }
     return false;
 }
@@ -5626,24 +5627,28 @@ uint8 GetFishingStepsNeededToLevelUp(uint32 SkillValue)
     return SkillValue / 31;
 }
 
-bool Player::UpdateFishingSkill()
+bool Player::UpdateFishingSkill(int32 expansion)
 {
-    TC_LOG_DEBUG("entities.player.skills", "Player::UpdateFishingSkill: Player '{}' ({})", GetName(), GetGUID().ToString());
+    TC_LOG_DEBUG("entities.player.skills", "Player::UpdateFishingSkill: Player '{}' ({}) Expansion: {}", GetName(), GetGUID().ToString(), expansion);
 
-    uint32 SkillValue = GetPureSkillValue(SKILL_FISHING);
-
-    if (SkillValue >= GetMaxSkillValue(SKILL_FISHING))
+    uint32 fishingSkill = GetProfessionSkillForExp(SKILL_FISHING, expansion);
+    if (!fishingSkill || !HasSkill(fishingSkill))
         return false;
 
-    uint8 stepsNeededToLevelUp = GetFishingStepsNeededToLevelUp(SkillValue);
+    uint32 skillValue = GetPureSkillValue(fishingSkill);
+
+    if (skillValue >= GetMaxSkillValue(fishingSkill))
+        return false;
+
+    uint8 stepsNeededToLevelUp = GetFishingStepsNeededToLevelUp(skillValue);
     ++m_fishingSteps;
 
     if (m_fishingSteps >= stepsNeededToLevelUp)
     {
         m_fishingSteps = 0;
 
-        uint32 gathering_skill_gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
-        return UpdateSkillPro(SKILL_FISHING, 100*10, gathering_skill_gain);
+        uint32 gatheringSkillGain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
+        return UpdateSkillPro(fishingSkill, 100*10, gatheringSkillGain);
     }
 
     return false;
@@ -5981,6 +5986,32 @@ void Player::SetSkill(uint32 id, uint16 step, uint16 newVal, uint16 maxVal)
             UpdateCriteria(CriteriaType::AchieveSkillStep, id);
         }
     }
+}
+
+uint32 Player::GetProfessionSkillForExp(uint32 skill, int32 expansion) const
+{
+    SkillLineEntry const* skillEntry = sSkillLineStore.LookupEntry(skill);
+    if (!skillEntry)
+        return 0;
+
+    if (skillEntry->ParentSkillLineID || (skillEntry->CategoryID != SKILL_CATEGORY_PROFESSION && skillEntry->CategoryID != SKILL_CATEGORY_SECONDARY))
+        return 0;
+
+    // The value -3 from ContentTuning refers to the current expansion
+    if (expansion < 0)
+        expansion = CURRENT_EXPANSION;
+
+    if (std::vector<SkillLineEntry const*> const* childSkillLines = sDB2Manager.GetSkillLinesForParentSkill(skillEntry->ID))
+        for (SkillLineEntry const* childSkillLine : *childSkillLines)
+        {
+            // Values of ParentTierIndex in SkillLine.db2 start at 4 (Classic) and increase by one for each expansion skillLine
+            // Subtract 4 (BASE_PARENT_TIER_INDEX) from this value to obtain the expansion of the skillLine
+            int32 skillLineExpansion = childSkillLine->ParentTierIndex - BASE_PARENT_TIER_INDEX;
+            if (expansion == skillLineExpansion)
+                return childSkillLine->ID;
+        }
+
+    return 0;
 }
 
 bool Player::HasSkill(uint32 skill) const
@@ -7735,6 +7766,9 @@ void Player::DuelComplete(DuelCompleteType type)
         else
             ++i;
     }
+
+    RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags2::DuelEnd);
+    opponent->RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags2::DuelEnd);
 
     // cleanup combo points
     ClearComboPoints();
@@ -13972,35 +14006,13 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId, bool showQues
                 case GossipOptionNpc::CemeterySelect:
                     canTalk = false;                               // Deprecated
                     break;
-                case GossipOptionNpc::GuildBanker:
-                case GossipOptionNpc::Spellclick:
-                case GossipOptionNpc::WorldPvPQueue:
-                case GossipOptionNpc::LFGDungeon:
-                case GossipOptionNpc::ArtifactRespec:
-                case GossipOptionNpc::QueueScenario:
-                case GossipOptionNpc::GarrisonArchitect:
-                case GossipOptionNpc::GarrisonMissionNpc:
-                case GossipOptionNpc::ShipmentCrafter:
-                case GossipOptionNpc::GarrisonTradeskillNpc:
-                case GossipOptionNpc::GarrisonRecruitment:
-                case GossipOptionNpc::AdventureMap:
-                case GossipOptionNpc::GarrisonTalent:
-                case GossipOptionNpc::ContributionCollector:
-                case GossipOptionNpc::IslandsMissionNpc:
-                case GossipOptionNpc::UIItemInteraction:
-                case GossipOptionNpc::WorldMap:
-                case GossipOptionNpc::Soulbind:
-                case GossipOptionNpc::ChromieTimeNpc:
-                case GossipOptionNpc::CovenantPreviewNpc:
-                case GossipOptionNpc::RuneforgeLegendaryCrafting:
-                case GossipOptionNpc::NewPlayerGuide:
-                case GossipOptionNpc::RuneforgeLegendaryUpgrade:
-                case GossipOptionNpc::CovenantRenownNpc:
-                    break;                                         // NYI
                 default:
-                    TC_LOG_ERROR("sql.sql", "Creature entry {} has an unknown gossip option icon {} for menu {}.", creature->GetEntry(), AsUnderlyingType(gossipMenuItem.OptionNpc), gossipMenuItem.MenuID);
-                    canTalk = false;
-                    break;
+                    if (gossipMenuItem.OptionNpc >= GossipOptionNpc::Count)
+                    {
+                        TC_LOG_ERROR("sql.sql", "Creature entry {} has an unknown gossip option icon {} for menu {}.", creature->GetEntry(), AsUnderlyingType(gossipMenuItem.OptionNpc), gossipMenuItem.MenuID);
+                        canTalk = false;
+                    }
+                    break;                                         // NYI
             }
         }
         else if (GameObject* go = source->ToGameObject())
@@ -14245,7 +14257,7 @@ uint32 Player::GetGossipTextId(WorldObject* source)
     if (!source)
         return DEFAULT_GOSSIP_MESSAGE;
 
-    return GetGossipTextId(GetDefaultGossipMenuForSource(source), source);
+    return GetGossipTextId(GetGossipMenuForSource(source), source);
 }
 
 uint32 Player::GetGossipTextId(uint32 menuId, WorldObject* source)
@@ -14259,6 +14271,10 @@ uint32 Player::GetGossipTextId(uint32 menuId, WorldObject* source)
 
     for (GossipMenusContainer::const_iterator itr = menuBounds.first; itr != menuBounds.second; ++itr)
     {
+        // continue if only checks menuid instead of text
+        if (!itr->second.TextID)
+            continue;
+
         if (sConditionMgr->IsObjectMeetToConditions(this, source, itr->second.Conditions))
             textId = itr->second.TextID;
     }
@@ -14266,12 +14282,33 @@ uint32 Player::GetGossipTextId(uint32 menuId, WorldObject* source)
     return textId;
 }
 
-uint32 Player::GetDefaultGossipMenuForSource(WorldObject* source)
+uint32 Player::GetGossipMenuForSource(WorldObject* source)
 {
     switch (source->GetTypeId())
     {
         case TYPEID_UNIT:
-            return source->ToCreature()->GetCreatureTemplate()->GossipMenuId;
+        {
+            uint32 menuIdToShow = source->ToCreature()->GetGossipMenuId();
+
+            // if menu id is set by script
+            if (menuIdToShow)
+                return menuIdToShow;
+
+            // otherwise pick from db based on conditions
+            for (uint32 menuId : source->ToCreature()->GetCreatureTemplate()->GossipMenuIds)
+            {
+                GossipMenusMapBounds menuBounds = sObjectMgr->GetGossipMenusMapBounds(menuId);
+
+                for (GossipMenusContainer::const_iterator itr = menuBounds.first; itr != menuBounds.second; ++itr)
+                {
+                    if (!sConditionMgr->IsObjectMeetToConditions(this, source, itr->second.Conditions))
+                        continue;
+
+                    menuIdToShow = menuId;
+                }
+            }
+            return menuIdToShow;
+        }
         case TYPEID_GAMEOBJECT:
             return source->ToGameObject()->GetGOInfo()->GetGossipMenuId();
         default:
@@ -15276,7 +15313,7 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
     //lets remove flag for delayed teleports
     SetCanDelayTeleport(false);
 
-    bool canHaveNextQuest = !quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE) ? !questGiver->IsPlayer() : true;
+    bool canHaveNextQuest = !quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE) ? questGiver && !questGiver->IsPlayer() : true;
     if (canHaveNextQuest)
     {
         switch (questGiver->GetTypeId())
@@ -16514,7 +16551,7 @@ void Player::UpdateQuestObjectiveProgress(QuestObjectiveType objectiveType, int3
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
 
         if (!QuestObjective::CanAlwaysBeProgressedInRaid(objectiveType))
-            if (GetGroup() && GetGroup()->isRaidGroup() && quest->IsAllowedInRaid(GetMap()->GetDifficultyID()))
+            if (GetGroup() && GetGroup()->isRaidGroup() && !quest->IsAllowedInRaid(GetMap()->GetDifficultyID()))
                 continue;
 
         uint16 logSlot = objectiveItr.second.QuestStatusItr->second.Slot;
@@ -17299,8 +17336,8 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         // "position_x, position_y, position_z, map, orientation, taximask, createTime, createMode, cinematic, totaltime, leveltime, rest_bonus, logout_time, is_logout_resting, resettalents_cost, "
         // "resettalents_time, primarySpecialization, trans_x, trans_y, trans_z, trans_o, transguid, extra_flags, summonedPetNumber, at_login, zone, online, death_expire_time, taxi_path, dungeonDifficulty, "
         // "totalKills, todayKills, yesterdayKills, chosenTitle, watchedFaction, drunk, "
-        // "health, power1, power2, power3, power4, power5, power6, power7, instance_id, activeTalentGroup, lootSpecId, exploredZones, knownTitles, actionBars, raidDifficulty, legacyRaidDifficulty, fishingSteps, "
-        // "honor, honorLevel, honorRestState, honorRestBonus, numRespecs "
+        // "health, power1, power2, power3, power4, power5, power6, power7, power8, power9, power10, instance_id, activeTalentGroup, lootSpecId, exploredZones, knownTitles, actionBars, "
+        // "raidDifficulty, legacyRaidDifficulty, fishingSteps, honor, honorLevel, honorRestState, honorRestBonus, numRespecs "
         // "FROM characters c LEFT JOIN character_fishingsteps cfs ON c.guid = cfs.guid WHERE c.guid = ?", CONNECTION_ASYNC);
 
         ObjectGuid::LowType guid;
@@ -17508,7 +17545,6 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             Trinity::StringTo<uint64>(knownTitles[i]).value_or(UI64LIT(0)) << (32 * (i % 2)));
 
     SetObjectScale(1.0f);
-    SetHoverHeight(1.0f);
 
     // load achievements before anything else to prevent multiple gains for the same achievement/criteria on every loading (as loading does call UpdateCriteria)
     m_achievementMgr->LoadFromDB(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ACHIEVEMENTS), holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS));
@@ -19694,19 +19730,8 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
         stmt->setUInt8(index++, GetDrunkValue());
         stmt->setUInt32(index++, GetHealth());
 
-        uint32 storedPowers = 0;
-        for (uint32 i = 0; i < MAX_POWERS; ++i)
-        {
-            if (GetPowerIndex(Powers(i)) != MAX_POWERS)
-            {
-                stmt->setUInt32(index++, m_unitData->Power[storedPowers]);
-                if (++storedPowers >= MAX_POWERS_PER_CLASS)
-                    break;
-            }
-        }
-
-        for (; storedPowers < MAX_POWERS_PER_CLASS; ++storedPowers)
-            stmt->setUInt32(index++, 0);
+        for (uint32 i = 0; i < MAX_POWERS_PER_CLASS; ++i)
+            stmt->setUInt32(index++, m_unitData->Power[i]);
 
         stmt->setUInt32(index++, GetSession()->GetLatency());
 
@@ -19842,19 +19867,8 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
         stmt->setUInt8(index++, GetDrunkValue());
         stmt->setUInt32(index++, GetHealth());
 
-        uint32 storedPowers = 0;
-        for (uint32 i = 0; i < MAX_POWERS; ++i)
-        {
-            if (GetPowerIndex(Powers(i)) != MAX_POWERS)
-            {
-                stmt->setUInt32(index++, m_unitData->Power[storedPowers]);
-                if (++storedPowers >= MAX_POWERS_PER_CLASS)
-                    break;
-            }
-        }
-
-        for (; storedPowers < MAX_POWERS_PER_CLASS; ++storedPowers)
-            stmt->setUInt32(index++, 0);
+        for (uint32 i = 0; i < MAX_POWERS_PER_CLASS; ++i)
+            stmt->setUInt32(index++, m_unitData->Power[i]);
 
         stmt->setUInt32(index++, GetSession()->GetLatency());
 
@@ -22407,8 +22421,7 @@ void Player::InitDisplayIds()
         return;
     }
 
-    SetDisplayId(model->DisplayID);
-    SetNativeDisplayId(model->DisplayID);
+    SetDisplayId(model->DisplayID, true);
     SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::StateAnimID), sDB2Manager.GetEmptyAnimStateID());
 }
 
@@ -23333,9 +23346,9 @@ bool Player::HaveAtClient(Object const* u) const
     return u == this || m_clientGUIDs.find(u->GetGUID()) != m_clientGUIDs.end();
 }
 
-bool Player::IsNeverVisibleFor(WorldObject const* seer) const
+bool Player::IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects) const
 {
-    if (Unit::IsNeverVisibleFor(seer))
+    if (Unit::IsNeverVisibleFor(seer, allowServersideObjects))
         return true;
 
     if (GetSession()->PlayerLogout() || GetSession()->PlayerLoading())
@@ -25530,7 +25543,7 @@ void Player::AtExitCombat()
 {
     Unit::AtExitCombat();
     UpdatePotionCooldown();
-    m_combatExitTime = getMSTime();
+    m_regenInterruptTimestamp = GameTime::Now();
 }
 
 float Player::GetBlockPercent(uint8 attackerLevel) const
@@ -28886,6 +28899,56 @@ void Player::RemoveSpecializationSpells()
     }
 }
 
+void Player::AddSpellCategoryCooldownMod(int32 spellCategoryId, int32 mod)
+{
+    int32 categoryIndex = m_activePlayerData->CategoryCooldownMods.FindIndexIf([spellCategoryId](UF::CategoryCooldownMod const& mod)
+    {
+        return mod.SpellCategoryID == spellCategoryId;
+    });
+
+    if (categoryIndex < 0)
+    {
+        UF::CategoryCooldownMod& newMod = AddDynamicUpdateFieldValue(m_values
+            .ModifyValue(&Player::m_activePlayerData)
+            .ModifyValue(&UF::ActivePlayerData::CategoryCooldownMods));
+
+        newMod.SpellCategoryID = spellCategoryId;
+        newMod.ModCooldown = -mod;
+    }
+    else
+    {
+        SetUpdateFieldValue(m_values
+            .ModifyValue(&Player::m_activePlayerData)
+            .ModifyValue(&UF::ActivePlayerData::CategoryCooldownMods, categoryIndex)
+            .ModifyValue(&UF::CategoryCooldownMod::ModCooldown), m_activePlayerData->CategoryCooldownMods[categoryIndex].ModCooldown - mod);
+    }
+}
+
+void Player::RemoveSpellCategoryCooldownMod(int32 spellCategoryId, int32 mod)
+{
+    int32 categoryIndex = m_activePlayerData->CategoryCooldownMods.FindIndexIf([spellCategoryId](UF::CategoryCooldownMod const& mod)
+    {
+        return mod.SpellCategoryID == spellCategoryId;
+    });
+
+    if (categoryIndex < 0)
+        return;
+
+    if (m_activePlayerData->CategoryCooldownMods[categoryIndex].ModCooldown + mod == 0)
+    {
+        RemoveDynamicUpdateFieldValue(m_values
+           .ModifyValue(&Player::m_activePlayerData)
+           .ModifyValue(&UF::ActivePlayerData::CategoryCooldownMods), categoryIndex);
+    }
+    else
+    {
+        SetUpdateFieldValue(m_values
+            .ModifyValue(&Player::m_activePlayerData)
+            .ModifyValue(&UF::ActivePlayerData::CategoryCooldownMods, categoryIndex)
+            .ModifyValue(&UF::CategoryCooldownMod::ModCooldown), m_activePlayerData->CategoryCooldownMods[categoryIndex].ModCooldown + mod);
+    }
+}
+
 void Player::RemoveSocial()
 {
     sSocialMgr->RemovePlayerSocial(GetGUID());
@@ -28895,29 +28958,6 @@ void Player::RemoveSocial()
 uint32 Player::GetDefaultSpecId() const
 {
     return ASSERT_NOTNULL(sDB2Manager.GetDefaultChrSpecializationForClass(GetClass()))->ID;
-}
-
-void Player::SendSpellCategoryCooldowns() const
-{
-    WorldPackets::Spells::CategoryCooldown cooldowns;
-
-    Unit::AuraEffectList const& categoryCooldownAuras = GetAuraEffectsByType(SPELL_AURA_MOD_SPELL_CATEGORY_COOLDOWN);
-    for (AuraEffect* aurEff : categoryCooldownAuras)
-    {
-        uint32 categoryId = aurEff->GetMiscValue();
-        auto cItr = std::find_if(cooldowns.CategoryCooldowns.begin(), cooldowns.CategoryCooldowns.end(),
-            [categoryId](WorldPackets::Spells::CategoryCooldown::CategoryCooldownInfo const& cooldown)
-        {
-            return cooldown.Category == categoryId;
-        });
-
-        if (cItr == cooldowns.CategoryCooldowns.end())
-            cooldowns.CategoryCooldowns.emplace_back(categoryId, -aurEff->GetAmount());
-        else
-            cItr->ModCooldown -= aurEff->GetAmount();
-    }
-
-    SendDirectMessage(cooldowns.Write());
 }
 
 void Player::SendRaidGroupOnlyMessage(RaidGroupReason reason, int32 delay) const
@@ -29181,6 +29221,7 @@ void Player::UpdateWarModeAuras()
             RemovePlayerFlag(PLAYER_FLAGS_WAR_MODE_ACTIVE);
             CastSpell(this, auraInside, true);
             RemoveAurasDueToSpell(auraOutside);
+            RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags2::WarModeLeave);
         }
         else
         {
@@ -29198,6 +29239,7 @@ void Player::UpdateWarModeAuras()
         RemoveAurasDueToSpell(auraInside);
         RemovePlayerFlag(PLAYER_FLAGS_WAR_MODE_ACTIVE);
         RemovePvpFlag(UNIT_BYTE2_FLAG_PVP);
+        RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags2::WarModeLeave);
     }
 }
 
@@ -29213,6 +29255,39 @@ std::string Player::GetDebugInfo() const
     std::stringstream sstr;
     sstr << Unit::GetDebugInfo();
     return sstr.str();
+}
+
+void Player::SetAreaSpiritHealer(Creature* creature)
+{
+    if (!creature)
+    {
+        _areaSpiritHealerGUID = ObjectGuid::Empty;
+        RemoveAurasDueToSpell(SPELL_WAITING_FOR_RESURRECT);
+        return;
+    }
+
+    if (!creature->IsAreaSpiritHealer())
+        return;
+
+    _areaSpiritHealerGUID = creature->GetGUID();
+    CastSpell(nullptr, SPELL_WAITING_FOR_RESURRECT);
+}
+
+void Player::SendAreaSpiritHealerTime(Unit* spiritHealer) const
+{
+    int32 timeLeft = 0;
+    if (Spell* spell = spiritHealer->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+        timeLeft = spell->GetTimer();
+
+    SendAreaSpiritHealerTime(spiritHealer->GetGUID(), timeLeft);
+}
+
+void Player::SendAreaSpiritHealerTime(ObjectGuid const& spiritHealerGUID, int32 timeLeft) const
+{
+    WorldPackets::Battleground::AreaSpiritHealerTime areaSpiritHealerTime;
+    areaSpiritHealerTime.HealerGuid = spiritHealerGUID;
+    areaSpiritHealerTime.TimeLeft = timeLeft;
+    SendDirectMessage(areaSpiritHealerTime.Write());
 }
 
 void Player::SendDisplayToast(uint32 entry, DisplayToastType type, bool isBonusRoll, uint32 quantity, DisplayToastMethod method, uint32 questId, Item* item /*= nullptr*/) const

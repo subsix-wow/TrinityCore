@@ -596,12 +596,12 @@ void MotionMaster::MoveTargetedHome()
     }
 }
 
-void MotionMaster::MoveRandom(float wanderDistance, Optional<Milliseconds> duration)
+void MotionMaster::MoveRandom(float wanderDistance, Optional<Milliseconds> duration, MovementSlot slot /*= MOTION_SLOT_DEFAULT*/)
 {
     if (_owner->GetTypeId() == TYPEID_UNIT)
     {
         TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveRandom: '{}', started random movement (spawnDist: {})", _owner->GetGUID().ToString(), wanderDistance);
-        Add(new RandomMovementGenerator<Creature>(wanderDistance, duration), MOTION_SLOT_DEFAULT);
+        Add(new RandomMovementGenerator<Creature>(wanderDistance, duration), slot);
     }
 }
 
@@ -639,15 +639,15 @@ void MotionMaster::MoveConfused()
     }
 }
 
-void MotionMaster::MoveFleeing(Unit* enemy, uint32 time)
+void MotionMaster::MoveFleeing(Unit* enemy, Milliseconds time)
 {
     if (!enemy)
         return;
 
-    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveFleeing: '{}', flees from '{}' (time: {})", _owner->GetGUID().ToString(), enemy->GetGUID().ToString(), time);
+    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveFleeing: '{}', flees from '{}' (time: {}ms)", _owner->GetGUID().ToString(), enemy->GetGUID().ToString(), time.count());
     if (_owner->GetTypeId() == TYPEID_UNIT)
     {
-        if (time)
+        if (time > 0ms)
             Add(new TimedFleeingMovementGenerator(enemy->GetGUID(), time));
         else
             Add(new FleeingMovementGenerator<Creature>(enemy->GetGUID()));
@@ -692,28 +692,54 @@ void MotionMaster::MoveCloserAndStop(uint32 id, Unit* target, float distance)
     }
 }
 
-void MotionMaster::MoveLand(uint32 id, Position const& pos, Optional<float> velocity /*= {}*/)
+void MotionMaster::MoveLand(uint32 id, Position const& pos, Optional<int32> tierTransitionId /*= {}*/, Optional<float> velocity /*= {}*/,
+    MovementWalkRunSpeedSelectionMode speedSelectionMode /*= MovementWalkRunSpeedSelectionMode::Default*/)
 {
     TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveLand: '{}', landing point Id: {} (X: {}, Y: {}, Z: {})", _owner->GetGUID().ToString(), id, pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
 
     std::function<void(Movement::MoveSplineInit&)> initializer = [=](Movement::MoveSplineInit& init)
     {
         init.MoveTo(PositionToVector3(pos), false);
-        init.SetAnimation(AnimTier::Ground);
+        init.SetAnimation(AnimTier::Ground, tierTransitionId.value_or(0));
+        switch (speedSelectionMode)
+        {
+            case MovementWalkRunSpeedSelectionMode::ForceRun:
+                init.SetWalk(false);
+                break;
+            case MovementWalkRunSpeedSelectionMode::ForceWalk:
+                init.SetWalk(true);
+                break;
+            case MovementWalkRunSpeedSelectionMode::Default:
+            default:
+                break;
+        }
         if (velocity)
             init.SetVelocity(*velocity);
     };
     Add(new GenericMovementGenerator(std::move(initializer), EFFECT_MOTION_TYPE, id));
 }
 
-void MotionMaster::MoveTakeoff(uint32 id, Position const& pos, Optional<float> velocity /*= {}*/)
+void MotionMaster::MoveTakeoff(uint32 id, Position const& pos, Optional<int32> tierTransitionId /*= {}*/, Optional<float> velocity /*= {}*/,
+    MovementWalkRunSpeedSelectionMode speedSelectionMode /*= MovementWalkRunSpeedSelectionMode::Default*/)
 {
     TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MoveTakeoff: '{}', landing point Id: {} (X: {}, Y: {}, Z: {})", _owner->GetGUID().ToString(), id, pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
 
     std::function<void(Movement::MoveSplineInit&)> initializer = [=](Movement::MoveSplineInit& init)
     {
         init.MoveTo(PositionToVector3(pos), false);
-        init.SetAnimation(AnimTier::Hover);
+        init.SetAnimation(AnimTier::Hover, tierTransitionId.value_or(0));
+        switch (speedSelectionMode)
+        {
+            case MovementWalkRunSpeedSelectionMode::ForceRun:
+                init.SetWalk(false);
+                break;
+            case MovementWalkRunSpeedSelectionMode::ForceWalk:
+                init.SetWalk(true);
+                break;
+            case MovementWalkRunSpeedSelectionMode::Default:
+            default:
+                break;
+        }
         if (velocity)
             init.SetVelocity(*velocity);
     };
@@ -740,6 +766,8 @@ void MotionMaster::MoveCharge(PathGenerator const& path, float speed /*= SPEED_C
     G3D::Vector3 dest = path.GetActualEndPosition();
 
     MoveCharge(dest.x, dest.y, dest.z, speed, EVENT_CHARGE_PREPATH);
+
+    // If this is ever changed to not happen immediately then all spell effect handlers that use this must be updated
 
     // Charge movement is not started when using EVENT_CHARGE_PREPATH
     Movement::MoveSplineInit init(_owner);
@@ -1075,19 +1103,27 @@ void MotionMaster::MoveDistract(uint32 timer, float orientation)
     Add(new DistractMovementGenerator(timer, orientation));
 }
 
-void MotionMaster::MovePath(uint32 pathId, bool repeatable)
+void MotionMaster::MovePath(uint32 pathId, bool repeatable, Optional<Milliseconds> duration, Optional<float> speed,
+    MovementWalkRunSpeedSelectionMode speedSelectionMode, Optional<std::pair<Milliseconds, Milliseconds>> waitTimeRangeAtPathEnd,
+    Optional<float> wanderDistanceAtPathEnds, bool followPathBackwardsFromEndToStart, bool generatePath)
 {
     if (!pathId)
         return;
 
-    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePath: '{}', starts moving over path Id: {} (repeatable: {})", _owner->GetGUID().ToString(), pathId, repeatable ? "YES" : "NO");
-    Add(new WaypointMovementGenerator<Creature>(pathId, repeatable), MOTION_SLOT_DEFAULT);
+    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePath: '{}', starts moving over path Id: {} (repeatable: {})",
+        _owner->GetGUID().ToString(), pathId, repeatable ? "YES" : "NO");
+    Add(new WaypointMovementGenerator<Creature>(pathId, repeatable, duration, speed, speedSelectionMode, waitTimeRangeAtPathEnd,
+        wanderDistanceAtPathEnds, followPathBackwardsFromEndToStart, generatePath), MOTION_SLOT_DEFAULT);
 }
 
-void MotionMaster::MovePath(WaypointPath& path, bool repeatable)
+void MotionMaster::MovePath(WaypointPath const& path, bool repeatable, Optional<Milliseconds> duration, Optional<float> speed,
+    MovementWalkRunSpeedSelectionMode speedSelectionMode, Optional<std::pair<Milliseconds, Milliseconds>> waitTimeRangeAtPathEnd,
+    Optional<float> wanderDistanceAtPathEnds, bool followPathBackwardsFromEndToStart, bool generatePath)
 {
-    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePath: '{}', starts moving over path Id: {} (repeatable: {})", _owner->GetGUID().ToString(), path.id, repeatable ? "YES" : "NO");
-    Add(new WaypointMovementGenerator<Creature>(path, repeatable), MOTION_SLOT_DEFAULT);
+    TC_LOG_DEBUG("movement.motionmaster", "MotionMaster::MovePath: '{}', starts moving over path Id: {} (repeatable: {})",
+        _owner->GetGUID().ToString(), path.id, repeatable ? "YES" : "NO");
+    Add(new WaypointMovementGenerator<Creature>(path, repeatable, duration, speed, speedSelectionMode, waitTimeRangeAtPathEnd,
+        wanderDistanceAtPathEnds, followPathBackwardsFromEndToStart, generatePath), MOTION_SLOT_DEFAULT);
 }
 
 void MotionMaster::MoveRotate(uint32 id, uint32 time, RotateDirection direction)

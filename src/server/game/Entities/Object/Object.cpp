@@ -279,6 +279,7 @@ void Object::BuildMovementUpdate(ByteBuffer* data, CreateObjectBits flags, Playe
         bool HasSpline = unit->IsSplineEnabled();
         bool HasInertia = unit->m_movementInfo.inertia.has_value();
         bool HasAdvFlying = unit->m_movementInfo.advFlying.has_value();
+        bool HasStandingOnGameObjectGUID = unit->m_movementInfo.standingOnGameObjectGUID.has_value();
 
         *data << GetGUID();                                             // MoverGUID
 
@@ -301,6 +302,7 @@ void Object::BuildMovementUpdate(ByteBuffer* data, CreateObjectBits flags, Playe
         //for (std::size_t i = 0; i < RemoveForcesIDs.size(); ++i)
         //    *data << ObjectGuid(RemoveForcesIDs);
 
+        data->WriteBit(HasStandingOnGameObjectGUID);                    // HasStandingOnGameObjectGUID
         data->WriteBit(!unit->m_movementInfo.transport.guid.IsEmpty()); // HasTransport
         data->WriteBit(HasFall);                                        // HasFall
         data->WriteBit(HasSpline);                                      // HasSpline - marks that the unit uses spline movement
@@ -311,6 +313,9 @@ void Object::BuildMovementUpdate(ByteBuffer* data, CreateObjectBits flags, Playe
 
         if (!unit->m_movementInfo.transport.guid.IsEmpty())
             *data << unit->m_movementInfo.transport;
+
+        if (HasStandingOnGameObjectGUID)
+            *data << *unit->m_movementInfo.standingOnGameObjectGUID;
 
         if (HasInertia)
         {
@@ -449,7 +454,6 @@ void Object::BuildMovementUpdate(ByteBuffer* data, CreateObjectBits flags, Playe
         bool hasFaceMovementDir     = areaTriggerTemplate && areaTrigger->GetTemplate()->HasFlag(AREATRIGGER_FLAG_HAS_FACE_MOVEMENT_DIR);
         bool hasFollowsTerrain      = areaTriggerTemplate && areaTrigger->GetTemplate()->HasFlag(AREATRIGGER_FLAG_HAS_FOLLOWS_TERRAIN);
         bool hasUnk1                = areaTriggerTemplate && areaTrigger->GetTemplate()->HasFlag(AREATRIGGER_FLAG_UNK1);
-        bool hasUnk2                = false;
         bool hasTargetRollPitchYaw  = areaTriggerTemplate && areaTrigger->GetTemplate()->HasFlag(AREATRIGGER_FLAG_HAS_TARGET_ROLL_PITCH_YAW);
         bool hasScaleCurveID        = createProperties && createProperties->ScaleCurveId != 0;
         bool hasMorphCurveID        = createProperties && createProperties->MorphCurveId != 0;
@@ -471,7 +475,6 @@ void Object::BuildMovementUpdate(ByteBuffer* data, CreateObjectBits flags, Playe
         data->WriteBit(hasFaceMovementDir);
         data->WriteBit(hasFollowsTerrain);
         data->WriteBit(hasUnk1);
-        data->WriteBit(hasUnk2);
         data->WriteBit(hasTargetRollPitchYaw);
         data->WriteBit(hasScaleCurveID);
         data->WriteBit(hasMorphCurveID);
@@ -842,6 +845,22 @@ void MovementInfo::OutDebug()
 
     if (flags & MOVEMENTFLAG_SPLINE_ELEVATION)
         TC_LOG_DEBUG("misc", "stepUpStartElevation: {}", stepUpStartElevation);
+
+    if (inertia)
+    {
+        TC_LOG_DEBUG("misc", "inertia->id: {}", inertia->id);
+        TC_LOG_DEBUG("misc", "inertia->force: {}", inertia->force.ToString());
+        TC_LOG_DEBUG("misc", "inertia->lifetime: {}", inertia->lifetime);
+    }
+
+    if (advFlying)
+    {
+        TC_LOG_DEBUG("misc", "advFlying->forwardVelocity: {}", advFlying->forwardVelocity);
+        TC_LOG_DEBUG("misc", "advFlying->upVelocity: {}", advFlying->upVelocity);
+    }
+
+    if (standingOnGameObjectGUID)
+        TC_LOG_DEBUG("misc", "standingOnGameObjectGUID: {}", standingOnGameObjectGUID->ToString());
 }
 
 WorldObject::WorldObject(bool isWorldObject) : Object(), WorldLocation(), LastUsedScriptID(0),
@@ -1479,12 +1498,12 @@ SmoothPhasing* WorldObject::GetOrCreateSmoothPhasing()
     return _smoothPhasing.get();
 }
 
-bool WorldObject::CanSeeOrDetect(WorldObject const* obj, bool ignoreStealth, bool distanceCheck, bool checkAlert) const
+bool WorldObject::CanSeeOrDetect(WorldObject const* obj, bool implicitDetect, bool distanceCheck, bool checkAlert) const
 {
     if (this == obj)
         return true;
 
-    if (obj->IsNeverVisibleFor(this) || CanNeverSee(obj))
+    if (obj->IsNeverVisibleFor(this, implicitDetect) || CanNeverSee(obj))
         return false;
 
     if (obj->IsAlwaysVisibleFor(this) || CanAlwaysSee(obj))
@@ -1569,7 +1588,7 @@ bool WorldObject::CanSeeOrDetect(WorldObject const* obj, bool ignoreStealth, boo
     if (obj->IsInvisibleDueToDespawn(this))
         return false;
 
-    if (!CanDetect(obj, ignoreStealth, checkAlert))
+    if (!CanDetect(obj, implicitDetect, checkAlert))
         return false;
 
     return true;
@@ -1580,7 +1599,7 @@ bool WorldObject::CanNeverSee(WorldObject const* obj) const
     return GetMap() != obj->GetMap() || !InSamePhase(obj);
 }
 
-bool WorldObject::CanDetect(WorldObject const* obj, bool ignoreStealth, bool checkAlert) const
+bool WorldObject::CanDetect(WorldObject const* obj, bool implicitDetect, bool checkAlert) const
 {
     WorldObject const* seer = this;
 
@@ -1600,10 +1619,10 @@ bool WorldObject::CanDetect(WorldObject const* obj, bool ignoreStealth, bool che
     if (obj->IsAlwaysDetectableFor(seer))
         return true;
 
-    if (!ignoreStealth && !seer->CanDetectInvisibilityOf(obj))
+    if (!implicitDetect && !seer->CanDetectInvisibilityOf(obj))
         return false;
 
-    if (!ignoreStealth && !seer->CanDetectStealthOf(obj, checkAlert))
+    if (!implicitDetect && !seer->CanDetectStealthOf(obj, checkAlert))
         return false;
 
     return true;
@@ -3044,10 +3063,6 @@ bool WorldObject::IsValidAttackTarget(WorldObject const* target, SpellInfo const
         }
     }
 
-    Creature const* creatureAttacker = ToCreature();
-    if (creatureAttacker && (creatureAttacker->GetCreatureTemplate()->type_flags & CREATURE_TYPE_FLAG_TREAT_AS_RAID_UNIT))
-        return false;
-
     if (playerAffectingAttacker && playerAffectingTarget)
         if (playerAffectingAttacker->duel && playerAffectingAttacker->duel->Opponent == playerAffectingTarget && playerAffectingAttacker->duel->State == DUEL_STATE_IN_PROGRESS)
             return true;
@@ -3140,7 +3155,7 @@ bool WorldObject::IsValidAssistTarget(WorldObject const* target, SpellInfo const
     }
 
     // can't assist non-friendly targets
-    if (GetReactionTo(target) < REP_NEUTRAL && target->GetReactionTo(this) < REP_NEUTRAL && (!ToCreature() || !(ToCreature()->GetCreatureTemplate()->type_flags & CREATURE_TYPE_FLAG_TREAT_AS_RAID_UNIT)))
+    if (GetReactionTo(target) < REP_NEUTRAL && target->GetReactionTo(this) < REP_NEUTRAL && (!ToCreature() || !ToCreature()->HasFlag(CREATURE_STATIC_FLAG_4_TREAT_AS_RAID_UNIT_FOR_HELPFUL_SPELLS)))
         return false;
 
     // PvP case
@@ -3173,7 +3188,7 @@ bool WorldObject::IsValidAssistTarget(WorldObject const* target, SpellInfo const
         if (!bySpell || !bySpell->HasAttribute(SPELL_ATTR6_CAN_ASSIST_IMMUNE_PC))
             if (unitTarget && !unitTarget->IsPvP())
                 if (Creature const* creatureTarget = target->ToCreature())
-                    return ((creatureTarget->GetCreatureTemplate()->type_flags & CREATURE_TYPE_FLAG_TREAT_AS_RAID_UNIT) || (creatureTarget->GetCreatureTemplate()->type_flags & CREATURE_TYPE_FLAG_CAN_ASSIST));
+                    return creatureTarget->HasFlag(CREATURE_STATIC_FLAG_4_TREAT_AS_RAID_UNIT_FOR_HELPFUL_SPELLS) || (creatureTarget->GetCreatureTemplate()->type_flags & CREATURE_TYPE_FLAG_CAN_ASSIST);
     }
 
     return true;

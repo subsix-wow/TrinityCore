@@ -631,6 +631,7 @@ void World::LoadConfigSettings(bool reload)
     setRegenRate(RATE_POWER_ARCANE_CHARGES, "Rate.ArcaneCharges.Loss");
     setRegenRate(RATE_POWER_FURY, "Rate.Fury.Loss");
     setRegenRate(RATE_POWER_PAIN, "Rate.Pain.Loss");
+    setRegenRate(RATE_POWER_ESSENCE, "Rate.Essence.Loss");
 
     rate_values[RATE_SKILL_DISCOVERY]      = sConfigMgr->GetFloatDefault("Rate.Skill.Discovery", 1.0f);
     rate_values[RATE_DROP_ITEM_POOR]       = sConfigMgr->GetFloatDefault("Rate.Drop.Item.Poor", 1.0f);
@@ -1980,6 +1981,9 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading Creature template addons...");
     sObjectMgr->LoadCreatureTemplateAddons();
 
+    TC_LOG_INFO("server.loading", "Loading Creature template sparring...");
+    sObjectMgr->LoadCreatureTemplateSparring();
+
     TC_LOG_INFO("server.loading", "Loading Creature template scaling...");
     sObjectMgr->LoadCreatureScalingData();
 
@@ -2256,6 +2260,9 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading Gossip menu addon...");
     sObjectMgr->LoadGossipMenuAddon();
 
+    TC_LOG_INFO("server.loading", "Loading Creature Template Gossip...");
+    sObjectMgr->LoadCreatureTemplateGossip();
+
     TC_LOG_INFO("server.loading", "Loading Creature trainers...");
     sObjectMgr->LoadCreatureTrainers();                         // must be after LoadGossipMenuItems
 
@@ -2264,9 +2271,6 @@ void World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading Waypoints...");
     sWaypointMgr->Load();
-
-    TC_LOG_INFO("server.loading", "Loading SmartAI Waypoints...");
-    sSmartWaypointMgr->LoadFromDB();
 
     TC_LOG_INFO("server.loading", "Loading Creature Formations...");
     sFormationMgr->LoadCreatureFormations();
@@ -2486,9 +2490,6 @@ void World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading character templates...");
     sCharacterTemplateDataStore->LoadCharacterTemplates();
-
-    TC_LOG_INFO("server.loading", "Loading realm names...");
-    sObjectMgr->LoadRealmNames();
 
     TC_LOG_INFO("server.loading", "Loading battle pets info...");
     BattlePets::BattlePetMgr::Initialize();

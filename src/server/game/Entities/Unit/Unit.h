@@ -190,6 +190,12 @@ enum UnitMods
     UNIT_MOD_FURY,
     UNIT_MOD_PAIN,
     UNIT_MOD_ESSENCE,
+    UNIT_MOD_RUNE_BLOOD,
+    UNIT_MOD_RUNE_FROST,
+    UNIT_MOD_RUNE_UNHOLY,
+    UNIT_MOD_ALTERNATE_QUEST,
+    UNIT_MOD_ALTERNATE_ENCOUNTER,
+    UNIT_MOD_ALTERNATE_MOUNT,
     UNIT_MOD_ARMOR,                                         // UNIT_MOD_ARMOR..UNIT_MOD_RESISTANCE_ARCANE must be in existed order, it's accessed by index values of SpellSchools enum.
     UNIT_MOD_RESISTANCE_HOLY,
     UNIT_MOD_RESISTANCE_FIRE,
@@ -209,7 +215,7 @@ enum UnitMods
     UNIT_MOD_RESISTANCE_START = UNIT_MOD_ARMOR,
     UNIT_MOD_RESISTANCE_END = UNIT_MOD_RESISTANCE_ARCANE + 1,
     UNIT_MOD_POWER_START = UNIT_MOD_MANA,
-    UNIT_MOD_POWER_END = UNIT_MOD_ESSENCE + 1
+    UNIT_MOD_POWER_END = UNIT_MOD_ALTERNATE_MOUNT + 1
 };
 
 static_assert(UNIT_MOD_POWER_END - UNIT_MOD_POWER_START == MAX_POWERS, "UnitMods powers section does not match Powers enum!");
@@ -852,6 +858,7 @@ class TC_GAME_API Unit : public WorldObject
         bool IsTotem() const    { return (m_unitTypeMask & UNIT_MASK_TOTEM) != 0; }
         bool IsVehicle() const  { return (m_unitTypeMask & UNIT_MASK_VEHICLE) != 0; }
 
+        int32 GetContentTuning() const { return m_unitData->ContentTuningID; }
         uint8 GetLevel() const { return uint8(m_unitData->Level); }
         uint8 GetLevelForTarget(WorldObject const* /*target*/) const override { return GetLevel(); }
         void SetLevel(uint8 lvl, bool sendUpdate = true);
@@ -908,6 +915,7 @@ class TC_GAME_API Unit : public WorldObject
         Powers GetPowerType() const { return Powers(*m_unitData->DisplayPower); }
         void SetPowerType(Powers power, bool sendUpdate = true);
         void SetOverrideDisplayPowerId(uint32 powerDisplayId) { SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::OverrideDisplayPowerID), powerDisplayId); }
+        Powers CalculateDisplayPowerType() const;
         void UpdateDisplayPower();
         int32 GetPower(Powers power) const;
         int32 GetMinPower(Powers power) const { return power == POWER_LUNAR_POWER ? -100 : 0; }
@@ -1105,14 +1113,15 @@ class TC_GAME_API Unit : public WorldObject
         bool IsBattleMaster()   const { return HasNpcFlag(UNIT_NPC_FLAG_BATTLEMASTER); }
         bool IsBanker()         const { return HasNpcFlag(UNIT_NPC_FLAG_BANKER); }
         bool IsInnkeeper()      const { return HasNpcFlag(UNIT_NPC_FLAG_INNKEEPER); }
-        bool IsSpiritHealer()   const { return HasNpcFlag(UNIT_NPC_FLAG_SPIRITHEALER); }
-        bool IsSpiritGuide()    const { return HasNpcFlag(UNIT_NPC_FLAG_SPIRITGUIDE); }
+        bool IsSpiritHealer()   const { return HasNpcFlag(UNIT_NPC_FLAG_SPIRIT_HEALER); }
+        bool IsAreaSpiritHealer() const { return HasNpcFlag(UNIT_NPC_FLAG_AREA_SPIRIT_HEALER); }
         bool IsTabardDesigner() const { return HasNpcFlag(UNIT_NPC_FLAG_TABARDDESIGNER); }
         bool IsAuctioner()      const { return HasNpcFlag(UNIT_NPC_FLAG_AUCTIONEER); }
         bool IsArmorer()        const { return HasNpcFlag(UNIT_NPC_FLAG_REPAIR); }
         bool IsWildBattlePet()  const { return HasNpcFlag(UNIT_NPC_FLAG_WILD_BATTLE_PET); }
         bool IsServiceProvider() const;
-        bool IsSpiritService() const { return HasNpcFlag(UNIT_NPC_FLAG_SPIRITHEALER | UNIT_NPC_FLAG_SPIRITGUIDE); }
+        bool IsSpiritService() const { return HasNpcFlag(UNIT_NPC_FLAG_SPIRIT_HEALER | UNIT_NPC_FLAG_AREA_SPIRIT_HEALER); }
+        bool IsAreaSpiritHealerIndividual() const { return HasNpcFlag2(UNIT_NPC_FLAG_2_AREA_SPIRIT_HEALER_INDIVIDUAL); }
         bool IsCritter() const { return GetCreatureType() == CREATURE_TYPE_CRITTER; }
 
         bool IsInFlight()  const { return HasUnitState(UNIT_STATE_IN_FLIGHT); }
@@ -1219,6 +1228,7 @@ class TC_GAME_API Unit : public WorldObject
 
         bool IsPlayingHoverAnim() const { return _playHoverAnim; }
         void SetPlayHoverAnim(bool enable);
+        void CalculateHoverHeight();
         void SetHoverHeight(float hoverHeight) { SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::HoverHeight), hoverHeight); }
 
         bool IsGravityDisabled() const { return m_movementInfo.HasMovementFlag(MOVEMENTFLAG_DISABLE_GRAVITY); }
@@ -1481,7 +1491,7 @@ class TC_GAME_API Unit : public WorldObject
         uint32 GetCreateHealth() const { return m_unitData->BaseHealth; }
         void SetCreateMana(uint32 val) { SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::BaseMana), val); }
         uint32 GetCreateMana() const { return m_unitData->BaseMana; }
-        int32 GetCreatePowerValue(Powers power) const;
+        virtual int32 GetCreatePowerValue(Powers power) const;
         float GetPosStat(Stats stat) const { return m_unitData->StatPosBuff[stat]; }
         float GetNegStat(Stats stat) const { return m_unitData->StatNegBuff[stat]; }
         float GetCreateStat(Stats stat) const { return m_createStats[stat]; }
@@ -1651,15 +1661,11 @@ class TC_GAME_API Unit : public WorldObject
         virtual float GetNativeObjectScale() const { return 1.0f; }
         virtual void RecalculateObjectScale();
         uint32 GetDisplayId() const { return m_unitData->DisplayID; }
-        virtual void SetDisplayId(uint32 modelId, float displayScale = 1.f);
+        float GetDisplayScale() const { return m_unitData->DisplayScale; }
+        virtual void SetDisplayId(uint32 displayId, bool setNative = false);
         uint32 GetNativeDisplayId() const { return m_unitData->NativeDisplayID; }
         float GetNativeDisplayScale() const { return m_unitData->NativeXDisplayScale; }
         void RestoreDisplayId(bool ignorePositiveAurasPreventingMounting = false);
-        void SetNativeDisplayId(uint32 displayId, float displayScale = 1.f)
-        {
-            SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::NativeDisplayID), displayId);
-            SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::NativeXDisplayScale), displayScale);
-        }
         void SetTransformSpell(uint32 spellid) { m_transformSpell = spellid;}
         uint32 GetTransformSpell() const { return m_transformSpell;}
 
@@ -1886,6 +1892,15 @@ class TC_GAME_API Unit : public WorldObject
         // enables / disables combat interaction of this unit
         void SetIsCombatDisallowed(bool apply) { _isCombatDisallowed = apply; }
 
+        void AddWorldEffect(int32 worldEffectId) { AddDynamicUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::WorldEffects)) = worldEffectId; }
+        void RemoveWorldEffect(int32 worldEffectId)
+        {
+            int32 index = m_unitData->WorldEffects.FindIndex(worldEffectId);
+            if (index >= 0)
+                RemoveDynamicUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::WorldEffects), index);
+        }
+        void ClearWorldEffects() { ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::WorldEffects)); }
+
         std::string GetDebugInfo() const override;
 
         UF::UpdateField<UF::UnitData, 0, TYPEID_UNIT> m_unitData;
@@ -2003,6 +2018,10 @@ class TC_GAME_API Unit : public WorldObject
 
         virtual void AtEngage(Unit* /*target*/) {}
         virtual void AtDisengage() {}
+
+    public:
+        void AtStartOfEncounter();
+        void AtEndOfEncounter();
 
     private:
 
