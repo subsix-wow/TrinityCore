@@ -457,6 +457,9 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     player->UpdateObjectVisibility(false);
     PhasingHandler::SendToPlayer(player);
 
+    if (Instanceable())
+        player->RemoveAurasWithInterruptFlags(SpellAuraInterruptFlags2::EnteringInstance);
+
     if (player->IsAlive())
         ConvertCorpseToBones(player->GetGUID());
 
@@ -3168,18 +3171,6 @@ void InstanceMap::CreateInstanceLockForPlayer(Player* player)
 MapDifficultyEntry const* Map::GetMapDifficulty() const
 {
     return sDB2Manager.GetMapDifficultyData(GetId(), GetDifficultyID());
-}
-
-ItemContext Map::GetDifficultyLootItemContext() const
-{
-    if (MapDifficultyEntry const* mapDifficulty = GetMapDifficulty())
-        if (mapDifficulty->ItemContext)
-            return ItemContext(mapDifficulty->ItemContext);
-
-    if (DifficultyEntry const* difficulty = sDifficultyStore.LookupEntry(GetDifficultyID()))
-        return ItemContext(difficulty->ItemContext);
-
-    return ItemContext::NONE;
 }
 
 uint32 Map::GetId() const

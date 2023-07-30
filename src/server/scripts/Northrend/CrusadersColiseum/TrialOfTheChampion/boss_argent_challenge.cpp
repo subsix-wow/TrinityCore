@@ -133,8 +133,6 @@ class spell_eadric_radiance : public SpellScriptLoader
         spell_eadric_radiance() : SpellScriptLoader("spell_eadric_radiance") { }
         class spell_eadric_radiance_SpellScript : public SpellScript
         {
-            PrepareSpellScript(spell_eadric_radiance_SpellScript);
-
             void FilterTargets(std::list<WorldObject*>& unitList)
             {
                 unitList.remove_if(OrientationCheck(GetCaster()));
@@ -548,13 +546,13 @@ public:
                     switch (uiType)
                     {
                         case 0:
-                            AddWaypoint(0, 712.14f, 628.42f, 411.88f);
+                            AddWaypoint(0, 712.14f, 628.42f, 411.88f, true);
                             break;
                         case 1:
-                            AddWaypoint(0, 742.44f, 650.29f, 411.79f);
+                            AddWaypoint(0, 742.44f, 650.29f, 411.79f, true);
                             break;
                         case 2:
-                            AddWaypoint(0, 783.33f, 615.29f, 411.84f);
+                            AddWaypoint(0, 783.33f, 615.29f, 411.84f, true);
                             break;
                     }
                     break;
@@ -562,13 +560,13 @@ public:
                     switch (uiType)
                     {
                         case 0:
-                            AddWaypoint(0, 713.12f, 632.97f, 411.90f);
+                            AddWaypoint(0, 713.12f, 632.97f, 411.90f, true);
                             break;
                         case 1:
-                            AddWaypoint(0, 746.73f, 650.24f, 411.56f);
+                            AddWaypoint(0, 746.73f, 650.24f, 411.56f, true);
                             break;
                         case 2:
-                            AddWaypoint(0, 781.32f, 610.54f, 411.82f);
+                            AddWaypoint(0, 781.32f, 610.54f, 411.82f, true);
                             break;
                     }
                     break;
@@ -576,19 +574,19 @@ public:
                     switch (uiType)
                     {
                         case 0:
-                            AddWaypoint(0, 715.06f, 637.07f, 411.91f);
+                            AddWaypoint(0, 715.06f, 637.07f, 411.91f, true);
                             break;
                         case 1:
-                            AddWaypoint(0, 750.72f, 650.20f, 411.77f);
+                            AddWaypoint(0, 750.72f, 650.20f, 411.77f, true);
                             break;
                         case 2:
-                            AddWaypoint(0, 779.77f, 607.03f, 411.81f);
+                            AddWaypoint(0, 779.77f, 607.03f, 411.81f, true);
                             break;
                     }
                     break;
             }
 
-            Start(false, true);
+            Start(false);
             uiWaypoint = uiType;
         }
 
@@ -651,8 +649,6 @@ class spell_paletress_summon_memory : public SpellScriptLoader
 
         class spell_paletress_summon_memory_SpellScript : public SpellScript
         {
-            PrepareSpellScript(spell_paletress_summon_memory_SpellScript);
-
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
                 return ValidateSpellInfo(memorySpellId);

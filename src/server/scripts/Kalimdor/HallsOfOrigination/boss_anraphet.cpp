@@ -104,6 +104,11 @@ enum Points
     MAX_BRANN_WAYPOINTS_INTRO   = 17
 };
 
+enum GossipMenuIds
+{
+    GOSSIP_MENU_START_INTRO = 11339,
+};
+
 Position const AnraphetActivatePos = {-193.656f, 366.689f, 75.91001f, 3.138207f};
 
 Position const BrannIntroWaypoint[MAX_BRANN_WAYPOINTS_INTRO] =
@@ -151,7 +156,7 @@ public:
             if (instance->GetData(DATA_DEAD_ELEMENTALS) == 4)
             {
                 // Set to combat automatically, Brann's event won't repeat
-                me->RemoveUnitFlag(UNIT_FLAG_UNINTERACTIBLE);
+                me->SetUninteractible(false);
                 events.SetPhase(PHASE_COMBAT);
                 ScheduleCombatEvents();
                 me->SetHomePosition(AnraphetActivatePos);
@@ -235,7 +240,7 @@ public:
                         events.ScheduleEvent(EVENT_ANRAPHET_READY, 6s, 0, PHASE_INTRO);
                         break;
                     case EVENT_ANRAPHET_READY:
-                        me->RemoveUnitFlag(UNIT_FLAG_UNINTERACTIBLE);
+                        me->SetUninteractible(false);
                         events.SetPhase(PHASE_COMBAT);
                         ScheduleCombatEvents();
                         break;
@@ -331,12 +336,12 @@ class npc_brann_bronzebeard_anraphet : public CreatureScript
         {
             npc_brann_bronzebeard_anraphetAI(Creature* creature) : CreatureAI(creature), _currentPoint(0), _instance(creature->GetInstanceScript()) { }
 
-            bool OnGossipSelect(Player* /*player*/, uint32 sender, uint32 action) override
+            bool OnGossipSelect(Player* /*player*/, uint32 menuId, uint32 action) override
             {
                 if (_instance->GetBossState(DATA_VAULT_OF_LIGHTS) == DONE)
                     return true;
 
-                if (me->GetGossipMenuId() == sender && !action)
+                if (menuId == GOSSIP_MENU_START_INTRO && !action)
                 {
                     _instance->SetBossState(DATA_VAULT_OF_LIGHTS, IN_PROGRESS);
                     _currentPoint = 0;
@@ -473,8 +478,6 @@ public:
 
     class spell_anraphet_alpha_beams_SpellScript : public SpellScript
     {
-        PrepareSpellScript(spell_anraphet_alpha_beams_SpellScript);
-
         void FilterTargets(std::list<WorldObject*>& targets)
         {
             if (targets.empty())
@@ -505,8 +508,6 @@ public:
 
     class spell_anraphet_omega_stance_summon_SpellScript : public SpellScript
     {
-        PrepareSpellScript(spell_anraphet_omega_stance_summon_SpellScript);
-
         void SetDest(SpellDestination& dest)
         {
             dest.RelocateOffset({ 0.0f, 0.0f, 30.0f, 0.0f });
@@ -532,15 +533,13 @@ public:
 
     class spell_anraphet_omega_stance_spider_effect_SpellScript : public SpellScript
     {
-        PrepareSpellScript(spell_anraphet_omega_stance_spider_effect_SpellScript);
-
         void SetDest(SpellDestination& dest)
         {
             // Do our own calculations for the destination position.
             /// TODO: Remove this once we find a general rule for WorldObject::MovePosition (this spell shouldn't take the Z change into consideration)
             Unit* caster = GetCaster();
             float angle = float(rand_norm()) * static_cast<float>(2 * M_PI);
-            uint32 dist = caster->GetCombatReach() + GetSpellInfo()->GetEffect(EFFECT_0).CalcRadius(caster) * (float)rand_norm();
+            uint32 dist = caster->GetCombatReach() + GetSpellInfo()->GetEffect(EFFECT_0).CalcRadius(caster, SpellTargetIndex::TargetB) * (float)rand_norm();
 
             float x = caster->GetPositionX() + dist * std::cos(angle);
             float y = caster->GetPositionY() + dist * std::sin(angle);

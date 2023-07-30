@@ -513,6 +513,8 @@ private:
     bool _isEventInProgress;
 };
 
+static constexpr uint32 PATH_ESCORT_CROK_SCOURGEBANE = 297034;
+
 struct npc_crok_scourgebane : public EscortAI
 {
     npc_crok_scourgebane(Creature* creature) : EscortAI(creature), _instance(creature->GetInstanceScript()), _respawnTime(creature->GetRespawnDelay()), _corpseDelay(creature->GetCorpseDelay())
@@ -747,7 +749,8 @@ struct npc_crok_scourgebane : public EscortAI
                     Talk(SAY_CROK_INTRO_3);
                     break;
                 case EVENT_START_PATHING:
-                    Start(true, true);
+                    LoadPath(PATH_ESCORT_CROK_SCOURGEBANE),
+                    Start(true);
                     break;
                 case EVENT_SCOURGE_STRIKE:
                     DoCastVictim(SPELL_SCOURGE_STRIKE);
@@ -1421,8 +1424,6 @@ public:
 // 70053 - Revive Champion
 class spell_svalna_revive_champion : public SpellScript
 {
-    PrepareSpellScript(spell_svalna_revive_champion);
-
     void RemoveAliveTarget(std::list<WorldObject*>& targets)
     {
         targets.remove_if(ICCSvalnaAliveCheck());
@@ -1452,8 +1453,6 @@ class spell_svalna_revive_champion : public SpellScript
 // 71462 - Remove Spear
 class spell_svalna_remove_spear : public SpellScript
 {
-    PrepareSpellScript(spell_svalna_remove_spear);
-
     void HandleScript(SpellEffIndex effIndex)
     {
         PreventHitDefaultEffect(effIndex);

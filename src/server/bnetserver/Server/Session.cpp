@@ -69,7 +69,7 @@ void Battlenet::Session::GameAccountInfo::LoadResult(Field* fields)
         DisplayName = Name;
 }
 
-Battlenet::Session::Session(tcp::socket&& socket) : BattlenetSocket(std::move(socket)), _accountInfo(new AccountInfo()), _gameAccountInfo(nullptr), _locale(),
+Battlenet::Session::Session(boost::asio::ip::tcp::socket&& socket) : BattlenetSocket(std::move(socket)), _accountInfo(new AccountInfo()), _gameAccountInfo(nullptr), _locale(),
     _os(), _build(0), _ipCountry(), _authed(false), _requestToken(0)
 {
     _headerLengthBuffer.Resize(2);
@@ -232,11 +232,9 @@ uint32 Battlenet::Session::HandleLogon(authentication::v1::LogonRequest const* l
     if (logonRequest->has_cached_web_credentials())
         return VerifyWebCredentials(logonRequest->cached_web_credentials(), continuation);
 
-    boost::asio::ip::tcp::endpoint const& endpoint = sLoginService.GetAddressForClient(GetRemoteIpAddress());
-
     challenge::v1::ChallengeExternalRequest externalChallenge;
     externalChallenge.set_payload_type("web_auth_url");
-    externalChallenge.set_payload(Trinity::StringFormat("https://{}:{}/bnetserver/login/", endpoint.address().to_string(), endpoint.port()));
+    externalChallenge.set_payload(Trinity::StringFormat("https://{}:{}/bnetserver/login/", sLoginService.GetHostnameForClient(GetRemoteIpAddress()), sLoginService.GetPort()));
     Service<challenge::v1::ChallengeListener>(this).OnExternalChallenge(&externalChallenge);
     return ERROR_OK;
 }
@@ -258,7 +256,7 @@ uint32 Battlenet::Session::HandleGenerateWebCredentials(authentication::v1::Gene
     {
         auto asPrintable = [](char c) { return std::isprint(c) ? c : ' '; };
 
-        TC_LOG_DEBUG("session", "[Battlenet::HandleGenerateWebCredentials] {} attempted to generate web cretentials with game other than WoW (using %c%c%c%c)!",
+        TC_LOG_DEBUG("session", "[Battlenet::HandleGenerateWebCredentials] {} attempted to generate web cretentials with game other than WoW (using {}{}{}{})!",
             GetClientInfo(), asPrintable((request->program() >> 24) & 0xFF), asPrintable((request->program() >> 16) & 0xFF),
             asPrintable((request->program() >> 8) & 0xFF), asPrintable(request->program() & 0xFF));
         return ERROR_BAD_PROGRAM;

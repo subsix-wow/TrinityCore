@@ -367,14 +367,14 @@ public:
             stormforgedMonitor->SetWalk(false);
             /// The npc would search an alternative way to get to the last waypoint without this unit state.
             stormforgedMonitor->AddUnitState(UNIT_STATE_IGNORE_PATHFINDING);
-            stormforgedMonitor->GetMotionMaster()->MovePath(NPC_STORMFORGED_MONITOR * 100, false);
+            stormforgedMonitor->GetMotionMaster()->MovePath((NPC_STORMFORGED_MONITOR * 100) << 3, false);
         }
 
         stormforgedEradictor = player->SummonCreature(NPC_STORMFORGED_ERADICTOR, stormforgedEradictorPosition, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 1min);
         if (stormforgedEradictor)
         {
             stormforgedEradictorGUID = stormforgedEradictor->GetGUID();
-            stormforgedEradictor->GetMotionMaster()->MovePath(NPC_STORMFORGED_ERADICTOR * 100, false);
+            stormforgedEradictor->GetMotionMaster()->MovePath((NPC_STORMFORGED_ERADICTOR * 100) << 3, false);
         }
 
         return true;
@@ -407,6 +407,40 @@ struct areatrigger_stormwind_teleport_unit : AreaTriggerAI
     }
 };
 
+void HandleBuffAreaTrigger(Player* player)
+{
+    if (GameObject* buffObject = player->FindNearestGameObjectWithOptions(4.0f, { .StringId = "bg_buff_object" }))
+    {
+        buffObject->ActivateObject(GameObjectActions::Disturb, 0, player);
+        buffObject->DespawnOrUnsummon();
+    }
+}
+
+struct areatrigger_battleground_buffs : AreaTriggerAI
+{
+    areatrigger_battleground_buffs(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        if (!unit->IsPlayer())
+            return;
+
+        HandleBuffAreaTrigger(unit->ToPlayer());
+    }
+};
+
+class AreaTrigger_at_battleground_buffs : public AreaTriggerScript
+{
+public:
+    AreaTrigger_at_battleground_buffs() : AreaTriggerScript("at_battleground_buffs") { }
+
+    bool OnTrigger(Player* player, AreaTriggerEntry const* /*areaTrigger*/) override
+    {
+        HandleBuffAreaTrigger(player);
+        return true;
+    }
+};
+
 void AddSC_areatrigger_scripts()
 {
     new AreaTrigger_at_coilfang_waterfall();
@@ -418,4 +452,6 @@ void AddSC_areatrigger_scripts()
     new AreaTrigger_at_area_52_entrance();
     new AreaTrigger_at_frostgrips_hollow();
     RegisterAreaTriggerAI(areatrigger_stormwind_teleport_unit);
+    RegisterAreaTriggerAI(areatrigger_battleground_buffs);
+    new AreaTrigger_at_battleground_buffs();
 }
